@@ -88,7 +88,7 @@ claude
 ```
 ~/.cac/
 ├── bin/claude          # wrapper（拦截所有 claude 调用）
-├── fake-bin/ioreg      # 返回独立硬件 UUID 的 ioreg 替代
+├── shim-bin/ioreg      # ioreg shim，返回配置独立的硬件 UUID
 ├── real_claude         # 真实 claude 二进制路径
 ├── current             # 当前激活的配置名
 ├── stopped             # 存在则临时停用

@@ -15,10 +15,10 @@ cmd_setup() {
     mkdir -p "$ENVS_DIR"
     echo "$real_claude" > "$CAC_DIR/real_claude"
     _write_wrapper
-    _write_fake_ioreg
+    _write_ioreg_shim
 
     echo "  ✓ wrapper    → $CAC_DIR/bin/claude"
-    echo "  ✓ fake ioreg → $CAC_DIR/fake-bin/ioreg"
+    echo "  ✓ ioreg shim → $CAC_DIR/shim-bin/ioreg"
     echo
     echo "── 下一步 ──────────────────────────────────────────────"
     echo "1. 将以下两行加到 ~/.zshrc 最前面："

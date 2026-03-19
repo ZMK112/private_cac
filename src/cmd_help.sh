@@ -25,7 +25,7 @@ $(_bold "示例：")
 
 $(_bold "文件目录：")
   ~/.cac/bin/claude       wrapper（拦截所有 claude 调用）
-  ~/.cac/fake-bin/ioreg   假 ioreg（返回假 machine UUID）
+  ~/.cac/shim-bin/ioreg   ioreg shim（返回独立 machine UUID）
   ~/.cac/current          当前激活的环境名
   ~/.cac/envs/<name>/     各环境：proxy / uuid / stable_id
 EOF
