@@ -20,7 +20,7 @@ def main() -> None:
         sys.exit(1)
 
     proxy = parse(uri)
-    dns = os.environ.get("DNS_SERVER", "tls://1.1.1.1")
+    dns = os.environ.get("DNS_SERVER", "8.8.8.8")
     tun_addr = os.environ.get("TUN_ADDRESS", "172.19.0.1/30")
     tun_mtu = int(os.environ.get("TUN_MTU", "9000"))
     print(render_json(proxy, dns_server=dns, tun_address=tun_addr, tun_mtu=tun_mtu))
