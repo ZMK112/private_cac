@@ -2,12 +2,7 @@
 
 # cac — Claude Code Cloak
 
-**Claude Code 安全套 · 无感版**
-
-开着就好，不用管。全程在线，但几乎感觉不到。
-多层隔离 + 稳定出口，为长期使用而设计。
-
-*没感觉，才是最好的保护。*
+**Claude Code 小雨伞** — 给 Claude Code 包一层隐私保护。无感运行，零侵入。
 
 **[中文](#中文) | [English](#english)**
 
