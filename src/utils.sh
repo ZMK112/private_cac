@@ -58,7 +58,7 @@ _parse_proxy() {
     host=$(echo "$raw" | cut -d: -f1)
     port=$(echo "$raw" | cut -d: -f2)
     user=$(echo "$raw" | cut -d: -f3)
-    pass=$(echo "$raw" | cut -d: -f4)
+    pass=$(echo "$raw" | cut -d: -f4-)
     if [[ -z "$user" ]]; then
         echo "http://${host}:${port}"
     else
@@ -93,7 +93,7 @@ _auto_detect_proxy() {
     host=$(echo "$raw" | cut -d: -f1)
     port=$(echo "$raw" | cut -d: -f2)
     user=$(echo "$raw" | cut -d: -f3)
-    pass=$(echo "$raw" | cut -d: -f4)
+    pass=$(echo "$raw" | cut -d: -f4-)
     if [[ -n "$user" ]]; then
         auth_part="${user}:${pass}@"
     else
