@@ -36,14 +36,14 @@ RUN set -eux; \
     test -x /root/.local/bin/claude
 
 # cac (Claude Anti-fingerprint Cloak) — build from source
-COPY src/ /tmp/cac-src/
-COPY build.sh /tmp/cac-src/
-RUN cd /tmp/cac-src && bash build.sh \
+COPY src/ /tmp/cac-build/src/
+COPY build.sh /tmp/cac-build/
+RUN cd /tmp/cac-build && bash build.sh \
     && cp cac /usr/local/bin/cac \
     && cp fingerprint-hook.js /usr/local/bin/fingerprint-hook.js \
     && cp relay.js /usr/local/bin/relay.js \
     && chmod +x /usr/local/bin/cac \
-    && rm -rf /tmp/cac-src
+    && rm -rf /tmp/cac-build
 
 ENV LANG=en_US.UTF-8 \
     PATH="/root/.local/bin:${PATH}"
