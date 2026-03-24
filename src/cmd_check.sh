@@ -33,6 +33,14 @@ cmd_check() {
     local problems=()
     local summary_parts=()
 
+    # ── wrapper 检查 ──
+    local claude_path; claude_path="$(command -v claude 2>/dev/null || true)"
+    if [[ -z "$claude_path" ]] || [[ "$(readlink -f "$claude_path" 2>/dev/null || echo "$claude_path")" != *"/.cac/bin/claude"* ]]; then
+        if [[ "$claude_path" != *"/.cac/bin/claude" ]]; then
+            problems+=("claude 未指向 wrapper — 运行 source ~/.zshrc 或重开终端")
+        fi
+    fi
+
     # ── 网络检查 ──
     local proxy_ip=""
     if [[ -n "$proxy" ]]; then
@@ -84,7 +92,7 @@ cmd_check() {
             fi
 
             if [[ "$relay_ok" == "true" ]]; then
-                summary_parts+=("relay 自动绕过")
+                summary_parts+=("TUN 冲突已绕过")
             else
                 local proxy_hp; proxy_hp=$(_proxy_host_port "$proxy")
                 local proxy_host="${proxy_hp%%:*}"
@@ -111,7 +119,7 @@ cmd_check() {
     done
 
     if [[ "$env_ok" -eq "$env_total" ]]; then
-        summary_parts+=("防护 ${env_ok}/${env_total}")
+        summary_parts+=("遥测屏蔽 ${env_ok}/${env_total}")
     else
         problems+=("遥测屏蔽 ${env_ok}/${env_total}")
     fi
@@ -125,9 +133,6 @@ cmd_check() {
         for p in "${problems[@]}"; do
             echo "  $(_red "✗") $p"
         done
-        if [[ ${#summary_parts[@]} -gt 0 ]]; then
-            echo "  $(IFS=' | '; echo "${summary_parts[*]}")"
-        fi
     fi
 
     # ── 详细模式 ──
