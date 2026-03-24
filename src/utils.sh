@@ -1,6 +1,6 @@
 # ── utils: 颜色、读写、UUID、proxy 解析 ───────────────────────
 
-CAC_VERSION="1.0.0"
+CAC_VERSION="1.1.0"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
