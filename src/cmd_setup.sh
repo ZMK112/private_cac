@@ -5,8 +5,13 @@ _ensure_initialized() {
     mkdir -p "$CAC_DIR" "$ENVS_DIR" "$VERSIONS_DIR"
 
     # Always sync JS hooks + dns-guard (they update with cac versions)
-    # Resolve symlink — npm global install creates: /usr/local/bin/cac → .../node_modules/claude-cac/cac
+    # Resolve symlink — npm global install creates: .nvm/.../bin/cac → ../lib/node_modules/claude-cac/cac
     local _self_path="${BASH_SOURCE[0]:-$0}"
+    # $0 may be just "cac" (no path) when invoked via PATH — resolve it
+    if [[ "$_self_path" != /* ]]; then
+        _self_path="$(command -v "$_self_path" 2>/dev/null || which "$_self_path" 2>/dev/null || echo "$_self_path")"
+    fi
+    # Follow symlink to real package directory
     if [[ -L "$_self_path" ]]; then
         local _link; _link="$(readlink "$_self_path")"
         [[ "$_link" != /* ]] && _link="$(dirname "$_self_path")/$_link"

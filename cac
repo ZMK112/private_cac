@@ -10,7 +10,7 @@ VERSIONS_DIR="$CAC_DIR/versions"
 # ━━━ utils.sh ━━━
 # ── utils: 颜色、读写、UUID、proxy 解析 ───────────────────────
 
-CAC_VERSION="1.1.4"
+CAC_VERSION="1.1.5"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
@@ -1195,8 +1195,13 @@ _ensure_initialized() {
     mkdir -p "$CAC_DIR" "$ENVS_DIR" "$VERSIONS_DIR"
 
     # Always sync JS hooks + dns-guard (they update with cac versions)
-    # Resolve symlink — npm global install creates: /usr/local/bin/cac → .../node_modules/claude-cac/cac
+    # Resolve symlink — npm global install creates: .nvm/.../bin/cac → ../lib/node_modules/claude-cac/cac
     local _self_path="${BASH_SOURCE[0]:-$0}"
+    # $0 may be just "cac" (no path) when invoked via PATH — resolve it
+    if [[ "$_self_path" != /* ]]; then
+        _self_path="$(command -v "$_self_path" 2>/dev/null || which "$_self_path" 2>/dev/null || echo "$_self_path")"
+    fi
+    # Follow symlink to real package directory
     if [[ -L "$_self_path" ]]; then
         local _link; _link="$(readlink "$_self_path")"
         [[ "$_link" != /* ]] && _link="$(dirname "$_self_path")/$_link"
