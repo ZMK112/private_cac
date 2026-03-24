@@ -1,7 +1,7 @@
 {
   "name": "claude-cac",
   "version": "1.0.0",
-  "description": "Claude Code Cloak — Privacy cloak + CLI proxy for Claude Code. Zero source invasion.",
+  "description": "Isolate, protect, and manage your Claude Code — versions, environments, identity, and proxy.",
   "bin": {
     "cac": "cac"
   },
@@ -35,7 +35,7 @@
     "type": "git",
     "url": "git+https://github.com/nmhjklnm/cac.git"
   },
-  "homepage": "https://github.com/nmhjklnm/cac#readme",
+  "homepage": "https://cac.nextmind.space/docs",
   "bugs": {
     "url": "https://github.com/nmhjklnm/cac/issues"
   },
