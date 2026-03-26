@@ -5,6 +5,16 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.3.3
+<sub>2026-03-27</sub>
+
+**关键修复：Bun 运行时支持** — [Issue #30](https://github.com/nmhjklnm/cac/issues/30)
+
+- Claude Code 独立二进制（通过 `curl` 或 `cac claude install` 安装的）使用 **Bun v1.3.11** 编译，而非 Node.js
+- `NODE_OPTIONS --require` 被 Bun 静默忽略 — `fingerprint-hook.js` 和 `cac-dns-guard.js` 在独立二进制下**从未注入**
+- Wrapper 现在同时设置 `NODE_OPTIONS`（Node.js）和 `BUN_OPTIONS --preload`（Bun），确保无论运行时如何都能注入 hook
+- 已验证：全部 7 项 monkey-patch 在 Bun 下正常工作（os.hostname、os.networkInterfaces、dns.lookup、child_process.execSync、fetch、https.request、net.connect）
+
 ## v1.3.2
 <sub>2026-03-27</sub>
 

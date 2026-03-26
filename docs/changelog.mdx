@@ -5,6 +5,16 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.3.3
+<sub>2026-03-27</sub>
+
+**Critical fix: Bun runtime support** — [Issue #30](https://github.com/nmhjklnm/cac/issues/30)
+
+- Claude Code standalone binaries (installed via `curl` or `cac claude install`) are compiled with **Bun v1.3.11**, not Node.js
+- `NODE_OPTIONS --require` is silently ignored by Bun — `fingerprint-hook.js` and `cac-dns-guard.js` were **never injected** in standalone builds
+- Wrapper now sets both `NODE_OPTIONS` (Node.js) and `BUN_OPTIONS --preload` (Bun) to ensure hooks are always injected regardless of runtime
+- Verified: all 7 monkey-patch points work correctly under Bun (os.hostname, os.networkInterfaces, dns.lookup, child_process.execSync, fetch, https.request, net.connect)
+
 ## v1.3.2
 <sub>2026-03-27</sub>
 
