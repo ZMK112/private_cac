@@ -234,6 +234,10 @@ if [[ -f "$CAC_DIR/cac-dns-guard.js" ]]; then
         *cac-dns-guard.js*) ;; # already injected, skip
         *) export NODE_OPTIONS="${NODE_OPTIONS:-} --require $CAC_DIR/cac-dns-guard.js" ;;
     esac
+    case "${BUN_OPTIONS:-}" in
+        *cac-dns-guard.js*) ;;
+        *) export BUN_OPTIONS="${BUN_OPTIONS:-} --preload $CAC_DIR/cac-dns-guard.js" ;;
+    esac
 fi
 # fallback layer: HOSTALIASES (gethostbyname level)
 [[ -f "$CAC_DIR/blocked_hosts" ]] && export HOSTALIASES="$CAC_DIR/blocked_hosts"
@@ -265,8 +269,12 @@ fi
 export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
 if [[ -f "$CAC_DIR/fingerprint-hook.js" ]]; then
     case "${NODE_OPTIONS:-}" in
-        *fingerprint-hook.js*) ;; # already injected, skip
+        *fingerprint-hook.js*) ;;
         *) export NODE_OPTIONS="--require $CAC_DIR/fingerprint-hook.js ${NODE_OPTIONS:-}" ;;
+    esac
+    case "${BUN_OPTIONS:-}" in
+        *fingerprint-hook.js*) ;;
+        *) export BUN_OPTIONS="--preload $CAC_DIR/fingerprint-hook.js ${BUN_OPTIONS:-}" ;;
     esac
 fi
 
