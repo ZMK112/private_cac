@@ -1,4 +1,4 @@
-# ── cmd: delete（卸载）────────────────────────────────────────
+# ── cmd: delete (uninstall) ────────────────────────────────────────
 
 cmd_delete() {
     echo "=== cac delete ==="
@@ -9,49 +9,49 @@ cmd_delete() {
 
     _remove_path_from_rc "$rc_file"
 
-    # 停止 relay 进程和路由
+    # stop relay processes and routes
     if [[ -d "$CAC_DIR" ]]; then
         _relay_stop 2>/dev/null || true
 
-        # 停止 docker port-forward 进程
+        # stop docker port-forward processes
         if [[ -d /tmp/cac-docker-ports ]]; then
             for _pf in /tmp/cac-docker-ports/*.pid; do
                 [[ -f "$_pf" ]] || continue
                 kill "$(cat "$_pf")" 2>/dev/null || true
                 rm -f "$_pf"
             done
-            echo "  ✓ 已停止 docker port-forward 进程"
+            echo "  ✓ stopped docker port-forward processes"
         fi
 
-        # 兜底：清理可能残留的 relay 孤儿进程
+        # fallback: clean up orphaned relay processes
         pkill -f "node.*\.cac/relay\.js" 2>/dev/null || true
 
         rm -rf "$CAC_DIR"
-        echo "  ✓ 已删除 $CAC_DIR"
+        echo "  ✓ deleted $CAC_DIR"
     else
-        echo "  - $CAC_DIR 不存在，跳过"
+        echo "  - $CAC_DIR does not exist, skipping"
     fi
 
     local method
     method=$(_install_method)
     echo
     if [[ "$method" == "npm" ]]; then
-        echo "  ✓ 已清除所有 cac 数据和配置"
+        echo "  ✓ cleared all cac data and config"
         echo
-        echo "要完全卸载 cac 命令，请执行："
+        echo "to fully uninstall the cac command, run:"
         echo "  npm uninstall -g claude-cac"
     else
         if [[ -f "$HOME/bin/cac" ]]; then
             rm -f "$HOME/bin/cac"
-            echo "  ✓ 已删除 $HOME/bin/cac"
+            echo "  ✓ deleted $HOME/bin/cac"
         fi
-        echo "  ✓ 卸载完成"
+        echo "  ✓ uninstall complete"
     fi
 
     echo
     if [[ -n "$rc_file" ]]; then
-        echo "请重开终端或执行 source $rc_file 使变更生效。"
+        echo "please restart terminal or run source $rc_file for changes to take effect."
     else
-        echo "请重开终端使变更生效。"
+        echo "please restart terminal for changes to take effect."
     fi
 }

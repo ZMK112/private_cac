@@ -1,6 +1,6 @@
-# ── DNS 拦截 & 遥测域名屏蔽 ─────────────────────────────────────
+# ── DNS interception & telemetry domain blocking ─────────────────────────────────────
 
-# 需要拦截的遥测域名
+# telemetry domains to block
 TELEMETRY_DOMAINS=(
     "statsig.anthropic.com"
     "sentry.io"
@@ -8,8 +8,8 @@ TELEMETRY_DOMAINS=(
     "cdn.growthbook.io"
 )
 
-# 写入 HOSTALIASES 文件（备用层：gethostbyname 级别拦截）
-# HOSTALIASES 格式为 hostname-to-hostname 映射（非 IP）
+# write HOSTALIASES file (fallback layer: gethostbyname-level blocking)
+# HOSTALIASES format is hostname-to-hostname mapping (not IP)
 _write_blocked_hosts() {
     local hosts_file="$CAC_DIR/blocked_hosts"
     {
@@ -21,14 +21,14 @@ _write_blocked_hosts() {
     } > "$hosts_file"
 }
 
-# 写入 Node.js DNS guard 模块（核心层：dns.lookup / dns.resolve 级别拦截 + mTLS）
+# write Node.js DNS guard module (core layer: dns.lookup / dns.resolve level blocking + mTLS)
 _write_dns_guard_js() {
     local guard_file="$CAC_DIR/cac-dns-guard.js"
     cat > "$guard_file" << 'DNSGUARD_EOF'
 // ═══════════════════════════════════════════════════════════════
 // cac-dns-guard.js
-// NS 层级遥测域名拦截 ｜ mTLS 证书注入 ｜ fetch 防泄露
-// 通过 NODE_OPTIONS="--require <this>" 注入到 Claude Code 进程
+// DNS-level telemetry domain blocking | mTLS certificate injection | fetch leak prevention
+// Injected into Claude Code process via NODE_OPTIONS="--require <this>"
 // ═══════════════════════════════════════════════════════════════
 'use strict';
 
@@ -39,7 +39,7 @@ var http = require('http');
 var https = require('https');
 var fs   = require('fs');
 
-// ─── 1. NS 层级遥测域名拦截 ──────────────────────────────────
+// ─── 1. DNS-level telemetry domain blocking ──────────────────────────────────
 
 var BLOCKED_DOMAINS = new Set([
     'statsig.anthropic.com',
@@ -49,8 +49,8 @@ var BLOCKED_DOMAINS = new Set([
 ]);
 
 /**
- * 检查域名是否在拦截名单中（含子域匹配）
- * e.g. "foo.sentry.io" 会匹配 "sentry.io"
+ * Check if domain is in block list (including subdomain matching)
+ * e.g. "foo.sentry.io" matches "sentry.io"
  */
 function isDomainBlocked(hostname) {
     if (!hostname) return false;
@@ -73,7 +73,7 @@ function makeBlockedError(hostname, syscall) {
     return err;
 }
 
-// ── 1a. 拦截 dns.lookup ──
+// ── 1a. intercept dns.lookup ──
 var _origLookup = dns.lookup;
 dns.lookup = function cacLookup(hostname, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
@@ -85,7 +85,7 @@ dns.lookup = function cacLookup(hostname, options, callback) {
     return _origLookup.call(dns, hostname, options, callback);
 };
 
-// ── 1b. 拦截 dns.resolve / resolve4 / resolve6 ──
+// ── 1b. intercept dns.resolve / resolve4 / resolve6 ──
 ['resolve','resolve4','resolve6'].forEach(function(method) {
     var orig = dns[method];
     if (!orig) return;
@@ -101,7 +101,7 @@ dns.lookup = function cacLookup(hostname, options, callback) {
     };
 });
 
-// ── 1c. 拦截 dns.promises ──
+// ── 1c. intercept dns.promises ──
 if (dns.promises) {
     var _origPLookup = dns.promises.lookup;
     if (_origPLookup) {
@@ -120,7 +120,7 @@ if (dns.promises) {
     });
 }
 
-// ── 1d. 网络层安全网：拦截 net.connect 到遥测域名 ──
+// ── 1d. network layer safety net: intercept net.connect to telemetry domains ──
 var _origNetConnect    = net.connect;
 var _origNetCreateConn = net.createConnection;
 
@@ -148,7 +148,7 @@ net.createConnection = function cacNetCreateConnection() {
 };
 
 
-// ─── 2. mTLS 客户端证书注入 ──────────────────────────────────
+// ─── 2. mTLS certificate injection ──────────────────────────────────
 
 var mtlsCert = process.env.CAC_MTLS_CERT;
 var mtlsKey  = process.env.CAC_MTLS_KEY;
@@ -166,14 +166,14 @@ if (mtlsCert && mtlsKey) {
     }
 
     if (certData && keyData) {
-        // 仅对代理服务器连接注入 mTLS 证书
+        // inject mTLS cert only for proxy connections
         var proxyHost = proxyHostPort.split(':')[0];
         var proxyPort = parseInt(proxyHostPort.split(':')[1], 10) || 0;
 
-        // 2a. 拦截 tls.connect，在代理连接时注入客户端证书
+        // 2a. intercept tls.connect, inject client cert for proxy connections
         var _origTlsConnect = tls.connect;
         tls.connect = function cacTlsConnect() {
-            // 规范化参数：tls.connect(options[, cb]) 或 tls.connect(port[, host][, options][, cb])
+            // normalize parameters: tls.connect(options[, cb]) or tls.connect(port[, host][, options][, cb])
             var args = Array.prototype.slice.call(arguments);
             var options, callback;
 
@@ -181,7 +181,7 @@ if (mtlsCert && mtlsKey) {
                 options = args[0];
                 callback = (typeof args[1] === 'function') ? args[1] : undefined;
             } else {
-                // tls.connect(port, host, options, cb) 形式
+                // tls.connect(port, host, options, cb) form
                 var port = args[0];
                 var host = (typeof args[1] === 'string') ? args[1] : 'localhost';
                 var optIdx = (typeof args[1] === 'string') ? 2 : 1;
@@ -192,7 +192,7 @@ if (mtlsCert && mtlsKey) {
                 if (typeof callback !== 'function') callback = undefined;
             }
 
-            // 仅在连接代理时注入（精确匹配 host:port）
+            // inject only for proxy connections (exact host:port match)
             var targetHost = options.host || options.hostname || '';
             var targetPort = options.port || 0;
             if (proxyHost && targetHost === proxyHost &&
@@ -212,7 +212,7 @@ if (mtlsCert && mtlsKey) {
             return _origTlsConnect.call(tls, options);
         };
 
-        // 2b. 注入 CA 到 https.globalAgent（仅信任 CA，不注入客户端私钥）
+        // 2b. inject CA into https.globalAgent (trust CA only, no client private key)
         if (caData && https.globalAgent && https.globalAgent.options) {
             https.globalAgent.options.ca = https.globalAgent.options.ca
                 ? [].concat(https.globalAgent.options.ca, caData)
@@ -222,15 +222,15 @@ if (mtlsCert && mtlsKey) {
 }
 
 
-// ─── 3. fetch 遥测拦截补丁 ──────────────────────────────────
-// Node.js 原生 fetch (undici) 不经过 dns.lookup，会绕过 DNS 拦截
-// 策略：优先用 node-fetch（走 http/https 模块 → dns.lookup）
-//       否则 wrap 原生 fetch 拦截遥测域名
+// ─── 3. fetch telemetry interception patch ──────────────────────────────────
+// Node.js native fetch (undici) bypasses dns.lookup, circumventing DNS blocking
+// Strategy: prefer node-fetch (uses http/https modules -> dns.lookup)
+//           otherwise wrap native fetch to block telemetry domains
 
 (function patchFetch() {
     if (typeof globalThis === 'undefined') return;
 
-    // 优先加载 node-fetch（基于 http/https 模块，天然走 dns.lookup 拦截链）
+    // prefer node-fetch (based on http/https modules, naturally goes through dns.lookup interception chain)
     try {
         var nodeFetch = require('node-fetch');
         if (nodeFetch && typeof nodeFetch === 'function') {
@@ -241,10 +241,10 @@ if (mtlsCert && mtlsKey) {
             return;
         }
     } catch(e) {
-        // node-fetch 不可用
+        // node-fetch not available
     }
 
-    // 兜底：包装原生 fetch，至少确保遥测域名被拦截
+    // fallback: wrap native fetch to ensure telemetry domains are blocked
     if (typeof globalThis.fetch === 'function') {
         var _origFetch = globalThis.fetch;
         globalThis.fetch = function cacFetch(input, init) {
@@ -264,15 +264,15 @@ if (mtlsCert && mtlsKey) {
 })();
 
 
-// ─── 4. 健康检查 bypass（进程内拦截，精确到 URL）────────────────
-// Claude Code 启动时 ping https://api.anthropic.com/api/hello
-// Cloudflare 拦截 Node.js TLS 指纹（JA3/JA4）→ 403
-// 方案：在 Node.js 层拦截该请求，直接返回 200，不发出任何网络流量
-// 仅拦截 health check，不影响 OAuth/API 等其他请求
+// ─── 4. health check bypass (in-process interception, URL-specific) ────────────────
+// Claude Code pings https://api.anthropic.com/api/hello on startup
+// Cloudflare blocks Node.js TLS fingerprint (JA3/JA4) -> 403
+// Solution: intercept this request at Node.js layer, return 200 directly, no network traffic
+// Only intercepts health check, does not affect OAuth/API or other requests
 
 function isHealthCheck(url) {
     if (!url) return false;
-    // 匹配 https://api.anthropic.com/api/hello 或带查询参数的变体
+    // match https://api.anthropic.com/api/hello or variants with query params
     return /^https?:\/\/api\.anthropic\.com\/api\/hello/.test(url);
 }
 
@@ -312,7 +312,7 @@ function makeHealthResponse(callback) {
     return req;
 }
 
-// 4a. 拦截 https.get / https.request
+// 4a. intercept https.get / https.request
 var _origHttpsRequest = https.request;
 var _origHttpsGet = https.get;
 
@@ -350,7 +350,7 @@ https.get = function cacHttpsGet(urlOrOpts, optsOrCb, cb) {
     return _origHttpsGet.apply(https, arguments);
 };
 
-// 4b. 拦截 fetch（undici 不走 https 模块）
+// 4b. intercept fetch (undici bypasses https module)
 (function patchHealthFetch() {
     if (typeof globalThis === 'undefined' || typeof globalThis.fetch !== 'function') return;
     var _prevFetch = globalThis.fetch;
@@ -372,13 +372,13 @@ DNSGUARD_EOF
     chmod 644 "$guard_file"
 }
 
-# 验证 DNS 拦截是否生效
+# verify DNS blocking is active
 _check_dns_block() {
     local domain="${1:-statsig.anthropic.com}"
     local guard_file="$CAC_DIR/cac-dns-guard.js"
 
     if [[ ! -f "$guard_file" ]]; then
-        echo "$(_red "✗") DNS guard 模块不存在"
+        echo "$(_red "✗") DNS guard module not found"
         return 1
     fi
 
@@ -392,10 +392,10 @@ _check_dns_block() {
     ' "$guard_file" "$domain" 2>/dev/null || echo "ERROR")
 
     if [[ "$result" == "BLOCKED" ]]; then
-        echo "$(_green "✓") $domain 已拦截"
+        echo "$(_green "✓") $domain blocked"
         return 0
     else
-        echo "$(_red "✗") $domain 未被拦截 ($result)"
+        echo "$(_red "✗") $domain not blocked ($result)"
         return 1
     fi
 }

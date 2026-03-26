@@ -8,7 +8,7 @@ ENVS_DIR="$CAC_DIR/envs"
 VERSIONS_DIR="$CAC_DIR/versions"
 
 # ━━━ utils.sh ━━━
-# ── utils: 颜色、读写、UUID、proxy 解析 ───────────────────────
+# ── utils: colors, read/write, UUID, proxy parsing ───────────────────────
 
 # shellcheck disable=SC2034  # used in build-concatenated cac script
 CAC_VERSION="1.2.1"
@@ -48,7 +48,7 @@ _new_machine_id() { _gen_uuid | tr -d '-' | tr '[:upper:]' '[:lower:]'; }
 _new_hostname() { echo "host-$(_gen_uuid | cut -d- -f1 | tr '[:upper:]' '[:lower:]')"; }
 _new_mac() { printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)); }
 
-# 获取真实命令路径（绕过 shim）
+# Get real command path (bypass shim)
 _get_real_cmd() {
     local cmd="$1"
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
@@ -56,15 +56,15 @@ _get_real_cmd() {
 }
 
 # host:port:user:pass → http://user:pass@host:port
-# 或直接传入完整 URL（http://、https://、socks5://）
+# or pass a full URL directly (http://, https://, socks5://)
 _parse_proxy() {
     local raw="$1"
-    # 如果已经是完整 URL，直接返回
+    # Already a full URL, return as-is
     if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
         echo "$raw"
         return
     fi
-    # 否则解析 host:port:user:pass 格式
+    # Parse host:port:user:pass format
     local host port user pass
     host=$(echo "$raw" | cut -d: -f1)
     port=$(echo "$raw" | cut -d: -f2)
@@ -90,11 +90,11 @@ _proxy_reachable() {
     (echo >/dev/tcp/"$host"/"$port") 2>/dev/null
 }
 
-# 自动检测代理协议（当用户未指定 http/socks5/https 时）
-# 用法：_auto_detect_proxy "host:port:user:pass" → 返回可用的完整 URL
+# Auto-detect proxy protocol (when user didn't specify http/socks5/https)
+# Usage: _auto_detect_proxy "host:port:user:pass" → returns a working full URL
 _auto_detect_proxy() {
     local raw="$1"
-    # 已有协议前缀，直接返回
+    # Has protocol prefix, return as-is
     if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
         echo "$raw"
         return 0
@@ -111,7 +111,7 @@ _auto_detect_proxy() {
         auth_part=""
     fi
 
-    # 依次尝试 http → socks5 → https
+    # Try in order: http → socks5 → https
     local proto try_url
     for proto in http socks5 https; do
         try_url="${proto}://${auth_part}${host}:${port}"
@@ -121,7 +121,7 @@ _auto_detect_proxy() {
         fi
     done
 
-    # 全部失败，回退 http
+    # All failed, fallback to http
     if [[ -n "$user" ]]; then
         echo "http://${auth_part}${host}:${port}"
     else
@@ -255,7 +255,7 @@ _require_setup() {
 
 _require_env() {
     [[ -d "$ENVS_DIR/$1" ]] || {
-        echo "错误：环境 '$1' 不存在，用 'cac ls' 查看" >&2; exit 1
+        echo "error: environment '$1' not found, use 'cac ls' to list" >&2; exit 1
     }
 }
 
@@ -288,7 +288,7 @@ _install_method() {
     local resolved="$self"
     if [[ -L "$self" ]]; then
         resolved=$(readlink "$self" 2>/dev/null || echo "$self")
-        # 处理相对路径的符号链接
+        # Handle relative symlinks
         if [[ "$resolved" != /* ]]; then
             resolved="$(dirname "$self")/$resolved"
         fi
@@ -303,18 +303,18 @@ _install_method() {
 _write_path_to_rc() {
     local rc_file="${1:-$(_detect_rc_file)}"
     if [[ -z "$rc_file" ]]; then
-        echo "  $(_yellow '⚠') 未找到 shell 配置文件，请手动添加 PATH："
+        echo "  $(_yellow '⚠') shell config file not found, please add PATH manually:"
         echo '    export PATH="$HOME/bin:$PATH"'
         echo '    export PATH="$HOME/.cac/bin:$PATH"'
         return 0
     fi
 
     if grep -q '# >>> cac >>>' "$rc_file" 2>/dev/null; then
-        echo "  ✓ PATH 已存在于 $rc_file，跳过"
+        echo "  ✓ PATH already exists in $rc_file, skipping"
         return 0
     fi
 
-    # 兼容旧格式：如果存在旧的 cac PATH 行，先移除
+    # Compat: remove old format if present
     if grep -q '\.cac/bin' "$rc_file" 2>/dev/null; then
         _remove_path_from_rc "$rc_file"
     fi
@@ -336,7 +336,7 @@ cac() {
 }
 # <<< cac — Claude Code Cloak <<<
 CACEOF
-    echo "  ✓ PATH 已写入 $rc_file"
+    echo "  ✓ PATH written to $rc_file"
     return 0
 }
 
@@ -344,23 +344,23 @@ _remove_path_from_rc() {
     local rc_file="${1:-$(_detect_rc_file)}"
     [[ -z "$rc_file" ]] && return 0
 
-    # 移除标记块格式（新格式）
+    # Remove marked block (new format)
     if grep -q '# >>> cac' "$rc_file" 2>/dev/null; then
         local tmp="${rc_file}.cac-tmp"
         awk '/# >>> cac/{skip=1; next} /# <<< cac/{skip=0; next} !skip' "$rc_file" > "$tmp"
         cat -s "$tmp" > "$rc_file"
         rm -f "$tmp"
-        echo "  ✓ 已从 $rc_file 移除 PATH 配置"
+        echo "  ✓ Removed PATH config from $rc_file"
         return 0
     fi
 
-    # 兼容旧格式
+    # Compat: old format
     if grep -qE '(\.cac/bin|# cac —)' "$rc_file" 2>/dev/null; then
         local tmp="${rc_file}.cac-tmp"
         grep -vE '(# cac — Claude Code Cloak|\.cac/bin|# cac 命令|# claude wrapper)' "$rc_file" > "$tmp" || true
         cat -s "$tmp" > "$rc_file"
         rm -f "$tmp"
-        echo "  ✓ 已从 $rc_file 移除 PATH 配置（旧格式）"
+        echo "  ✓ Removed PATH config from $rc_file (old format)"
         return 0
     fi
 }
@@ -403,9 +403,9 @@ PYEOF
 }
 
 # ━━━ dns_block.sh ━━━
-# ── DNS 拦截 & 遥测域名屏蔽 ─────────────────────────────────────
+# ── DNS interception & telemetry domain blocking ─────────────────────────────────────
 
-# 需要拦截的遥测域名
+# telemetry domains to block
 TELEMETRY_DOMAINS=(
     "statsig.anthropic.com"
     "sentry.io"
@@ -413,8 +413,8 @@ TELEMETRY_DOMAINS=(
     "cdn.growthbook.io"
 )
 
-# 写入 HOSTALIASES 文件（备用层：gethostbyname 级别拦截）
-# HOSTALIASES 格式为 hostname-to-hostname 映射（非 IP）
+# write HOSTALIASES file (fallback layer: gethostbyname-level blocking)
+# HOSTALIASES format is hostname-to-hostname mapping (not IP)
 _write_blocked_hosts() {
     local hosts_file="$CAC_DIR/blocked_hosts"
     {
@@ -426,14 +426,14 @@ _write_blocked_hosts() {
     } > "$hosts_file"
 }
 
-# 写入 Node.js DNS guard 模块（核心层：dns.lookup / dns.resolve 级别拦截 + mTLS）
+# write Node.js DNS guard module (core layer: dns.lookup / dns.resolve level blocking + mTLS)
 _write_dns_guard_js() {
     local guard_file="$CAC_DIR/cac-dns-guard.js"
     cat > "$guard_file" << 'DNSGUARD_EOF'
 // ═══════════════════════════════════════════════════════════════
 // cac-dns-guard.js
-// NS 层级遥测域名拦截 ｜ mTLS 证书注入 ｜ fetch 防泄露
-// 通过 NODE_OPTIONS="--require <this>" 注入到 Claude Code 进程
+// DNS-level telemetry domain blocking | mTLS certificate injection | fetch leak prevention
+// Injected into Claude Code process via NODE_OPTIONS="--require <this>"
 // ═══════════════════════════════════════════════════════════════
 'use strict';
 
@@ -444,7 +444,7 @@ var http = require('http');
 var https = require('https');
 var fs   = require('fs');
 
-// ─── 1. NS 层级遥测域名拦截 ──────────────────────────────────
+// ─── 1. DNS-level telemetry domain blocking ──────────────────────────────────
 
 var BLOCKED_DOMAINS = new Set([
     'statsig.anthropic.com',
@@ -454,8 +454,8 @@ var BLOCKED_DOMAINS = new Set([
 ]);
 
 /**
- * 检查域名是否在拦截名单中（含子域匹配）
- * e.g. "foo.sentry.io" 会匹配 "sentry.io"
+ * Check if domain is in block list (including subdomain matching)
+ * e.g. "foo.sentry.io" matches "sentry.io"
  */
 function isDomainBlocked(hostname) {
     if (!hostname) return false;
@@ -478,7 +478,7 @@ function makeBlockedError(hostname, syscall) {
     return err;
 }
 
-// ── 1a. 拦截 dns.lookup ──
+// ── 1a. intercept dns.lookup ──
 var _origLookup = dns.lookup;
 dns.lookup = function cacLookup(hostname, options, callback) {
     if (typeof options === 'function') { callback = options; options = {}; }
@@ -490,7 +490,7 @@ dns.lookup = function cacLookup(hostname, options, callback) {
     return _origLookup.call(dns, hostname, options, callback);
 };
 
-// ── 1b. 拦截 dns.resolve / resolve4 / resolve6 ──
+// ── 1b. intercept dns.resolve / resolve4 / resolve6 ──
 ['resolve','resolve4','resolve6'].forEach(function(method) {
     var orig = dns[method];
     if (!orig) return;
@@ -506,7 +506,7 @@ dns.lookup = function cacLookup(hostname, options, callback) {
     };
 });
 
-// ── 1c. 拦截 dns.promises ──
+// ── 1c. intercept dns.promises ──
 if (dns.promises) {
     var _origPLookup = dns.promises.lookup;
     if (_origPLookup) {
@@ -525,7 +525,7 @@ if (dns.promises) {
     });
 }
 
-// ── 1d. 网络层安全网：拦截 net.connect 到遥测域名 ──
+// ── 1d. network layer safety net: intercept net.connect to telemetry domains ──
 var _origNetConnect    = net.connect;
 var _origNetCreateConn = net.createConnection;
 
@@ -553,7 +553,7 @@ net.createConnection = function cacNetCreateConnection() {
 };
 
 
-// ─── 2. mTLS 客户端证书注入 ──────────────────────────────────
+// ─── 2. mTLS certificate injection ──────────────────────────────────
 
 var mtlsCert = process.env.CAC_MTLS_CERT;
 var mtlsKey  = process.env.CAC_MTLS_KEY;
@@ -571,14 +571,14 @@ if (mtlsCert && mtlsKey) {
     }
 
     if (certData && keyData) {
-        // 仅对代理服务器连接注入 mTLS 证书
+        // inject mTLS cert only for proxy connections
         var proxyHost = proxyHostPort.split(':')[0];
         var proxyPort = parseInt(proxyHostPort.split(':')[1], 10) || 0;
 
-        // 2a. 拦截 tls.connect，在代理连接时注入客户端证书
+        // 2a. intercept tls.connect, inject client cert for proxy connections
         var _origTlsConnect = tls.connect;
         tls.connect = function cacTlsConnect() {
-            // 规范化参数：tls.connect(options[, cb]) 或 tls.connect(port[, host][, options][, cb])
+            // normalize parameters: tls.connect(options[, cb]) or tls.connect(port[, host][, options][, cb])
             var args = Array.prototype.slice.call(arguments);
             var options, callback;
 
@@ -586,7 +586,7 @@ if (mtlsCert && mtlsKey) {
                 options = args[0];
                 callback = (typeof args[1] === 'function') ? args[1] : undefined;
             } else {
-                // tls.connect(port, host, options, cb) 形式
+                // tls.connect(port, host, options, cb) form
                 var port = args[0];
                 var host = (typeof args[1] === 'string') ? args[1] : 'localhost';
                 var optIdx = (typeof args[1] === 'string') ? 2 : 1;
@@ -597,7 +597,7 @@ if (mtlsCert && mtlsKey) {
                 if (typeof callback !== 'function') callback = undefined;
             }
 
-            // 仅在连接代理时注入（精确匹配 host:port）
+            // inject only for proxy connections (exact host:port match)
             var targetHost = options.host || options.hostname || '';
             var targetPort = options.port || 0;
             if (proxyHost && targetHost === proxyHost &&
@@ -617,7 +617,7 @@ if (mtlsCert && mtlsKey) {
             return _origTlsConnect.call(tls, options);
         };
 
-        // 2b. 注入 CA 到 https.globalAgent（仅信任 CA，不注入客户端私钥）
+        // 2b. inject CA into https.globalAgent (trust CA only, no client private key)
         if (caData && https.globalAgent && https.globalAgent.options) {
             https.globalAgent.options.ca = https.globalAgent.options.ca
                 ? [].concat(https.globalAgent.options.ca, caData)
@@ -627,15 +627,15 @@ if (mtlsCert && mtlsKey) {
 }
 
 
-// ─── 3. fetch 遥测拦截补丁 ──────────────────────────────────
-// Node.js 原生 fetch (undici) 不经过 dns.lookup，会绕过 DNS 拦截
-// 策略：优先用 node-fetch（走 http/https 模块 → dns.lookup）
-//       否则 wrap 原生 fetch 拦截遥测域名
+// ─── 3. fetch telemetry interception patch ──────────────────────────────────
+// Node.js native fetch (undici) bypasses dns.lookup, circumventing DNS blocking
+// Strategy: prefer node-fetch (uses http/https modules -> dns.lookup)
+//           otherwise wrap native fetch to block telemetry domains
 
 (function patchFetch() {
     if (typeof globalThis === 'undefined') return;
 
-    // 优先加载 node-fetch（基于 http/https 模块，天然走 dns.lookup 拦截链）
+    // prefer node-fetch (based on http/https modules, naturally goes through dns.lookup interception chain)
     try {
         var nodeFetch = require('node-fetch');
         if (nodeFetch && typeof nodeFetch === 'function') {
@@ -646,10 +646,10 @@ if (mtlsCert && mtlsKey) {
             return;
         }
     } catch(e) {
-        // node-fetch 不可用
+        // node-fetch not available
     }
 
-    // 兜底：包装原生 fetch，至少确保遥测域名被拦截
+    // fallback: wrap native fetch to ensure telemetry domains are blocked
     if (typeof globalThis.fetch === 'function') {
         var _origFetch = globalThis.fetch;
         globalThis.fetch = function cacFetch(input, init) {
@@ -669,15 +669,15 @@ if (mtlsCert && mtlsKey) {
 })();
 
 
-// ─── 4. 健康检查 bypass（进程内拦截，精确到 URL）────────────────
-// Claude Code 启动时 ping https://api.anthropic.com/api/hello
-// Cloudflare 拦截 Node.js TLS 指纹（JA3/JA4）→ 403
-// 方案：在 Node.js 层拦截该请求，直接返回 200，不发出任何网络流量
-// 仅拦截 health check，不影响 OAuth/API 等其他请求
+// ─── 4. health check bypass (in-process interception, URL-specific) ────────────────
+// Claude Code pings https://api.anthropic.com/api/hello on startup
+// Cloudflare blocks Node.js TLS fingerprint (JA3/JA4) -> 403
+// Solution: intercept this request at Node.js layer, return 200 directly, no network traffic
+// Only intercepts health check, does not affect OAuth/API or other requests
 
 function isHealthCheck(url) {
     if (!url) return false;
-    // 匹配 https://api.anthropic.com/api/hello 或带查询参数的变体
+    // match https://api.anthropic.com/api/hello or variants with query params
     return /^https?:\/\/api\.anthropic\.com\/api\/hello/.test(url);
 }
 
@@ -717,7 +717,7 @@ function makeHealthResponse(callback) {
     return req;
 }
 
-// 4a. 拦截 https.get / https.request
+// 4a. intercept https.get / https.request
 var _origHttpsRequest = https.request;
 var _origHttpsGet = https.get;
 
@@ -755,7 +755,7 @@ https.get = function cacHttpsGet(urlOrOpts, optsOrCb, cb) {
     return _origHttpsGet.apply(https, arguments);
 };
 
-// 4b. 拦截 fetch（undici 不走 https 模块）
+// 4b. intercept fetch (undici bypasses https module)
 (function patchHealthFetch() {
     if (typeof globalThis === 'undefined' || typeof globalThis.fetch !== 'function') return;
     var _prevFetch = globalThis.fetch;
@@ -777,13 +777,13 @@ DNSGUARD_EOF
     chmod 644 "$guard_file"
 }
 
-# 验证 DNS 拦截是否生效
+# verify DNS blocking is active
 _check_dns_block() {
     local domain="${1:-statsig.anthropic.com}"
     local guard_file="$CAC_DIR/cac-dns-guard.js"
 
     if [[ ! -f "$guard_file" ]]; then
-        echo "$(_red "✗") DNS guard 模块不存在"
+        echo "$(_red "✗") DNS guard module not found"
         return 1
     fi
 
@@ -797,37 +797,37 @@ _check_dns_block() {
     ' "$guard_file" "$domain" 2>/dev/null || echo "ERROR")
 
     if [[ "$result" == "BLOCKED" ]]; then
-        echo "$(_green "✓") $domain 已拦截"
+        echo "$(_green "✓") $domain blocked"
         return 0
     else
-        echo "$(_red "✗") $domain 未被拦截 ($result)"
+        echo "$(_red "✗") $domain not blocked ($result)"
         return 1
     fi
 }
 
 # ━━━ mtls.sh ━━━
-# ── mTLS 客户端证书管理 ─────────────────────────────────────────
+# ── mTLS client certificate management ─────────────────────────────────────────
 
-# 生成自签 CA（setup 时调用，仅生成一次）
+# generate self-signed CA (called during setup, generated only once)
 _generate_ca_cert() {
     local ca_dir="$CAC_DIR/ca"
     local ca_key="$ca_dir/ca_key.pem"
     local ca_cert="$ca_dir/ca_cert.pem"
 
     if [[ -f "$ca_cert" ]] && [[ -f "$ca_key" ]]; then
-        echo "  CA 证书已存在，跳过生成"
+        echo "  CA cert exists, skipping"
         return 0
     fi
 
     mkdir -p "$ca_dir"
 
-    # 生成 CA 私钥（4096 位 RSA）
+    # generate CA private key (4096-bit RSA)
     openssl genrsa -out "$ca_key" 4096 2>/dev/null || {
-        echo "错误：生成 CA 私钥失败" >&2; return 1
+        echo "error: failed to generate CA private key" >&2; return 1
     }
     chmod 600 "$ca_key"
 
-    # 生成自签 CA 证书（有效期 10 年）
+    # generate self-signed CA cert (valid for 10 years)
     openssl req -new -x509 \
         -key "$ca_key" \
         -out "$ca_cert" \
@@ -836,12 +836,12 @@ _generate_ca_cert() {
         -addext "basicConstraints=critical,CA:TRUE,pathlen:0" \
         -addext "keyUsage=critical,keyCertSign,cRLSign" \
         2>/dev/null || {
-        echo "错误：生成 CA 证书失败" >&2; return 1
+        echo "error: failed to generate CA cert" >&2; return 1
     }
     chmod 644 "$ca_cert"
 }
 
-# 为指定环境生成客户端证书（cac add 时调用）
+# generate client cert for environment (called during cac add)
 _generate_client_cert() {
     local name="$1"
     local env_dir="$ENVS_DIR/$name"
@@ -849,7 +849,7 @@ _generate_client_cert() {
     local ca_cert="$CAC_DIR/ca/ca_cert.pem"
 
     if [[ ! -f "$ca_key" ]] || [[ ! -f "$ca_cert" ]]; then
-        echo "  警告：CA 证书不存在，跳过客户端证书生成" >&2
+        echo "  warning: CA cert not found, skipping client cert generation" >&2
         return 1
     fi
 
@@ -857,22 +857,22 @@ _generate_client_cert() {
     local client_csr="$env_dir/client_csr.pem"
     local client_cert="$env_dir/client_cert.pem"
 
-    # 生成客户端私钥（2048 位 RSA）
+    # generate client private key (2048-bit RSA)
     openssl genrsa -out "$client_key" 2048 2>/dev/null || {
-        echo "错误：生成客户端私钥失败" >&2; return 1
+        echo "error: failed to generate client private key" >&2; return 1
     }
     chmod 600 "$client_key"
 
-    # 生成 CSR
+    # generate CSR
     openssl req -new \
         -key "$client_key" \
         -out "$client_csr" \
         -subj "/CN=cac-client-${name}/O=cac/OU=env-${name}" \
         2>/dev/null || {
-        echo "错误：生成 CSR 失败" >&2; return 1
+        echo "error: failed to generate CSR" >&2; return 1
     }
 
-    # 用 CA 签发客户端证书（有效期 1 年）
+    # sign client cert with CA (valid for 1 year)
     openssl x509 -req \
         -in "$client_csr" \
         -CA "$ca_cert" \
@@ -882,52 +882,52 @@ _generate_client_cert() {
         -days 365 \
         -extfile <(printf "keyUsage=critical,digitalSignature\nextendedKeyUsage=clientAuth") \
         2>/dev/null || {
-        echo "错误：签发客户端证书失败" >&2; return 1
+        echo "error: failed to sign client cert" >&2; return 1
     }
     chmod 644 "$client_cert"
 
-    # 清理 CSR（不再需要）
+    # cleanup CSR (no longer needed)
     rm -f "$client_csr"
 }
 
-# 验证 mTLS 证书状态
+# verify mTLS certificate status
 _check_mtls() {
     local env_dir="$1"
     local ca_cert="$CAC_DIR/ca/ca_cert.pem"
     local client_cert="$env_dir/client_cert.pem"
     local client_key="$env_dir/client_key.pem"
 
-    # 检查 CA
+    # check CA
     if [[ ! -f "$ca_cert" ]]; then
-        echo "$(_red "✗") CA 证书不存在"
+        echo "$(_red "✗") CA cert not found"
         return 1
     fi
 
-    # 检查客户端证书
+    # check client cert
     if [[ ! -f "$client_cert" ]] || [[ ! -f "$client_key" ]]; then
-        echo "$(_yellow "⚠") 客户端证书不存在"
+        echo "$(_yellow "⚠") client cert not found"
         return 1
     fi
 
-    # 验证证书链
+    # verify certificate chain
     if openssl verify -CAfile "$ca_cert" "$client_cert" >/dev/null 2>&1; then
-        # 检查证书有效期
+        # check certificate expiry
         local expiry
         expiry=$(openssl x509 -in "$client_cert" -noout -enddate 2>/dev/null | cut -d= -f2)
         local cn
         cn=$(openssl x509 -in "$client_cert" -noout -subject 2>/dev/null | sed 's/.*CN *= *//')
-        echo "$(_green "✓") mTLS 证书有效 (CN=$cn, 到期: $expiry)"
+        echo "$(_green "✓") mTLS certificate valid (CN=$cn, expires: $expiry)"
         return 0
     else
-        echo "$(_red "✗") 证书链验证失败"
+        echo "$(_red "✗") certificate chain verification failed"
         return 1
     fi
 }
 
 # ━━━ templates.sh ━━━
-# ── templates: 写入 wrapper、shim、环境初始化 ──────────────────
+# ── templates: wrapper, shim, env init ──────────────────
 
-# 写入 statusline-command.sh 到环境 .claude 目录
+# write statusline-command.sh to env .claude dir
 _write_statusline_script() {
     local config_dir="$1"
     cat > "$config_dir/statusline-command.sh" << 'STATUSLINE_EOF'
@@ -1020,7 +1020,7 @@ STATUSLINE_EOF
     chmod +x "$config_dir/statusline-command.sh"
 }
 
-# 写入 settings.json 到环境 .claude 目录
+# write settings.json to env .claude dir
 _write_env_settings() {
     local config_dir="$1"
     cat > "$config_dir/settings.json" << 'SETTINGS_EOF'
@@ -1037,7 +1037,7 @@ _write_env_settings() {
 SETTINGS_EOF
 }
 
-# 写入 CLAUDE.md 到环境 .claude 目录
+# write CLAUDE.md to env .claude dir
 _write_env_claude_md() {
     local config_dir="$1"
     local env_name="$2"
@@ -1066,25 +1066,25 @@ set -euo pipefail
 CAC_DIR="$HOME/.cac"
 ENVS_DIR="$CAC_DIR/envs"
 
-# cacstop 状态：直接透传
+# cacstop state: passthrough directly
 if [[ -f "$CAC_DIR/stopped" ]]; then
     _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude" 2>/dev/null || true)
     [[ -x "$_real" ]] && exec "$_real" "$@"
-    echo "[cac] 错误：找不到真实 claude，运行 'cac setup'" >&2; exit 1
+    echo "[cac] error: real claude not found, run 'cac setup'" >&2; exit 1
 fi
 
-# 读取当前环境
+# read current environment
 if [[ ! -f "$CAC_DIR/current" ]]; then
-    echo "[cac] 错误：未激活任何环境，运行 'cac <name>'" >&2; exit 1
+    echo "[cac] error: no active environment, run 'cac <name>'" >&2; exit 1
 fi
 _name=$(tr -d '[:space:]' < "$CAC_DIR/current")
 _env_dir="$ENVS_DIR/$_name"
-[[ -d "$_env_dir" ]] || { echo "[cac] 错误：环境 '$_name' 不存在" >&2; exit 1; }
+[[ -d "$_env_dir" ]] || { echo "[cac] error: environment '$_name' not found" >&2; exit 1; }
 
 # Isolated .claude config directory
 if [[ -d "$_env_dir/.claude" ]]; then
     export CLAUDE_CONFIG_DIR="$_env_dir/.claude"
-    # 确保 settings.json 存在，阻止 Claude Code fallback 到 ~/.claude/settings.json
+    # ensure settings.json exists, prevent Claude Code fallback to ~/.claude/settings.json
     [[ -f "$_env_dir/.claude/settings.json" ]] || echo '{}' > "$_env_dir/.claude/settings.json"
 fi
 
@@ -1095,18 +1095,18 @@ if [[ -f "$_env_dir/proxy" ]]; then
 fi
 
 if [[ -n "$PROXY" ]]; then
-    # pre-flight：代理连通性（纯 bash，无 fork）
+    # pre-flight: proxy connectivity (pure bash, no fork)
     _hp="${PROXY##*@}"; _hp="${_hp##*://}"
     _host="${_hp%%:*}"
     _port="${_hp##*:}"
     if ! (echo >/dev/tcp/"$_host"/"$_port") 2>/dev/null; then
-        echo "[cac] 错误：[$_name] 代理 $_hp 不通，拒绝启动。" >&2
-        echo "[cac] 提示：运行 'cac check' 排查，或 'cac stop' 临时停用" >&2
+        echo "[cac] error: [$_name] proxy $_hp unreachable, refusing to start." >&2
+        echo "[cac] hint: run 'cac check' to diagnose, or 'cac stop' to disable temporarily" >&2
         exit 1
     fi
 fi
 
-# 注入 statsig stable_id
+# inject statsig stable_id
 if [[ -f "$_env_dir/stable_id" ]]; then
     _sid=$(tr -d '[:space:]' < "$_env_dir/stable_id")
     _config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -1119,7 +1119,7 @@ if [[ -f "$_env_dir/stable_id" ]]; then
     fi
 fi
 
-# 注入环境变量 —— 代理（仅在配置了代理时）
+# inject env vars — proxy (only when proxy is configured)
 if [[ -n "$PROXY" ]]; then
     export _CAC_PROXY="$PROXY"
     export HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" ALL_PROXY="$PROXY"
@@ -1127,45 +1127,45 @@ if [[ -n "$PROXY" ]]; then
 fi
 export PATH="$CAC_DIR/shim-bin:$PATH"
 
-# ── 多层环境变量遥测保护 ──
-# Layer 1: Claude Code 原生开关
+# ── multi-layer telemetry protection ──
+# Layer 1: Claude Code native toggle
 export CLAUDE_CODE_ENABLE_TELEMETRY=
-# Layer 2: 通用遥测标准 (https://consoledonottrack.com)
+# Layer 2: universal telemetry opt-out (https://consoledonottrack.com)
 export DO_NOT_TRACK=1
-# Layer 3: OpenTelemetry SDK 全面禁用
+# Layer 3: OpenTelemetry SDK fully disabled
 export OTEL_SDK_DISABLED=true
 export OTEL_TRACES_EXPORTER=none
 export OTEL_METRICS_EXPORTER=none
 export OTEL_LOGS_EXPORTER=none
-# Layer 4: Sentry DSN 置空，阻止错误上报
+# Layer 4: empty Sentry DSN, block error reporting
 export SENTRY_DSN=
-# Layer 5: Claude Code 特有开关
+# Layer 5: Claude Code specific toggles
 export DISABLE_ERROR_REPORTING=1
 export DISABLE_BUG_COMMAND=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-# Layer 6: 其他已知遥测标志
+# Layer 6: other known telemetry flags
 export TELEMETRY_DISABLED=1
 export DISABLE_TELEMETRY=1
 
-# 有代理时：强制走 OAuth（清除 API 配置防泄露）
-# 无代理时：保留用户的 API Key / Base URL
+# with proxy: force OAuth (clear API config to prevent leaks)
+# without proxy: preserve user's API Key / Base URL
 if [[ -n "$PROXY" ]]; then
     unset ANTHROPIC_BASE_URL
     unset ANTHROPIC_AUTH_TOKEN
     unset ANTHROPIC_API_KEY
 fi
 
-# ── NS 层级 DNS 拦截 ──
+# ── NS-level DNS interception ──
 if [[ -f "$CAC_DIR/cac-dns-guard.js" ]]; then
     case "${NODE_OPTIONS:-}" in
-        *cac-dns-guard.js*) ;; # 已注入，跳过
+        *cac-dns-guard.js*) ;; # already injected, skip
         *) export NODE_OPTIONS="${NODE_OPTIONS:-} --require $CAC_DIR/cac-dns-guard.js" ;;
     esac
 fi
-# 备用层：HOSTALIASES（gethostbyname 级别）
+# fallback layer: HOSTALIASES (gethostbyname level)
 [[ -f "$CAC_DIR/blocked_hosts" ]] && export HOSTALIASES="$CAC_DIR/blocked_hosts"
 
-# ── mTLS 客户端证书 ──
+# ── mTLS client certificate ──
 if [[ -f "$_env_dir/client_cert.pem" ]] && [[ -f "$_env_dir/client_key.pem" ]]; then
     export CAC_MTLS_CERT="$_env_dir/client_cert.pem"
     export CAC_MTLS_KEY="$_env_dir/client_key.pem"
@@ -1176,7 +1176,7 @@ if [[ -f "$_env_dir/client_cert.pem" ]] && [[ -f "$_env_dir/client_key.pem" ]]; 
     [[ -n "${_hp:-}" ]] && export CAC_PROXY_HOST="$_hp"
 fi
 
-# 确保 CA 证书始终被信任（mTLS 需要）
+# ensure CA cert is always trusted (required for mTLS)
 [[ -f "$CAC_DIR/ca/ca_cert.pem" ]] && export NODE_EXTRA_CA_CERTS="$CAC_DIR/ca/ca_cert.pem"
 
 [[ -f "$_env_dir/tz" ]]   && export TZ=$(tr -d '[:space:]' < "$_env_dir/tz")
@@ -1186,18 +1186,18 @@ if [[ -f "$_env_dir/hostname" ]]; then
     export HOSTNAME="$_hn" CAC_HOSTNAME="$_hn"
 fi
 
-# Node.js 级指纹拦截（绕过 shell shim 限制）
+# Node.js-level fingerprint interception (bypasses shell shim limitations)
 [[ -f "$_env_dir/mac_address" ]] && export CAC_MAC=$(tr -d '[:space:]' < "$_env_dir/mac_address")
 [[ -f "$_env_dir/machine_id" ]]  && export CAC_MACHINE_ID=$(tr -d '[:space:]' < "$_env_dir/machine_id")
 export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
 if [[ -f "$CAC_DIR/fingerprint-hook.js" ]]; then
     case "${NODE_OPTIONS:-}" in
-        *fingerprint-hook.js*) ;; # 已注入，跳过
+        *fingerprint-hook.js*) ;; # already injected, skip
         *) export NODE_OPTIONS="--require $CAC_DIR/fingerprint-hook.js ${NODE_OPTIONS:-}" ;;
     esac
 fi
 
-# 执行真实 claude — versioned binary or system fallback
+# exec real claude — versioned binary or system fallback
 _real=""
 if [[ -f "$_env_dir/version" ]]; then
     _ver=$(tr -d '[:space:]' < "$_env_dir/version")
@@ -1207,23 +1207,23 @@ fi
 if [[ -z "$_real" ]] || [[ ! -x "$_real" ]]; then
     _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude")
 fi
-[[ -x "$_real" ]] || { echo "[cac] 错误：找不到 claude，运行 'cac setup'" >&2; exit 1; }
+[[ -x "$_real" ]] || { echo "[cac] error: claude not found, run 'cac setup'" >&2; exit 1; }
 
-# ── Relay 本地中转（有代理时始终启用）──
+# ── Relay local forwarding (always enabled when proxy is set) ──
 _relay_active=false
 if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
     _relay_js="$CAC_DIR/relay.js"
     _relay_pid_file="$CAC_DIR/relay.pid"
     _relay_port_file="$CAC_DIR/relay.port"
 
-    # 检查 relay 是否已在运行
+    # check if relay is already running
     _relay_running=false
     if [[ -f "$_relay_pid_file" ]]; then
         _rpid=$(tr -d '[:space:]' < "$_relay_pid_file")
         kill -0 "$_rpid" 2>/dev/null && _relay_running=true
     fi
 
-    # 未运行则启动
+    # start if not running
     if [[ "$_relay_running" != "true" ]] && [[ -f "$_relay_js" ]]; then
         _rport=17890
         while (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null; do
@@ -1239,7 +1239,7 @@ if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
         echo "$_rport" > "$_relay_port_file"
     fi
 
-    # 覆盖代理指向本地 relay
+    # override proxy to point to local relay
     if [[ -f "$_relay_port_file" ]]; then
         _rport=$(tr -d '[:space:]' < "$_relay_port_file")
         export HTTPS_PROXY="http://127.0.0.1:$_rport"
@@ -1249,9 +1249,9 @@ if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
     fi
 fi
 
-# 清理函数
+# cleanup function
 _cleanup_all() {
-    # 清理 relay
+    # cleanup relay
     if [[ "$_relay_active" == "true" ]] && [[ -f "$CAC_DIR/relay.pid" ]]; then
         local _p; _p=$(cat "$CAC_DIR/relay.pid" 2>/dev/null) || true
         [[ -n "$_p" ]] && kill "$_p" 2>/dev/null || true
@@ -1274,7 +1274,7 @@ _write_ioreg_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 非目标调用：透传真实 ioreg
+# non-target call: passthrough to real ioreg
 if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
     _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
             command -v ioreg 2>/dev/null || true)
@@ -1282,7 +1282,7 @@ if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
     exit 0
 fi
 
-# 读取当前环境的 UUID
+# read current env UUID
 _uuid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/uuid"
 if [[ ! -f "$_uuid_file" ]]; then
     _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
@@ -1312,10 +1312,10 @@ _write_machine_id_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 先获取真实 cat 路径（避免递归调用自身）
+# get real cat path first (avoid recursive self-call)
 _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v cat 2>/dev/null || true)
 
-# 拦截 /etc/machine-id 和 /var/lib/dbus/machine-id
+# intercept /etc/machine-id and /var/lib/dbus/machine-id
 if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; then
     _mid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/machine_id"
     if [[ -f "$_mid_file" ]] && [[ -n "$_real" ]]; then
@@ -1323,7 +1323,7 @@ if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; 
     fi
 fi
 
-# 非目标调用：透传真实 cat
+# non-target call: passthrough to real cat
 [[ -n "$_real" ]] && exec "$_real" "$@"
 exit 1
 CAT_EOF
@@ -1336,14 +1336,14 @@ _write_hostname_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 读取伪造的 hostname
+# read spoofed hostname
 _hn_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/hostname"
 if [[ -f "$_hn_file" ]]; then
     tr -d '[:space:]' < "$_hn_file"
     exit 0
 fi
 
-# 透传真实 hostname
+# passthrough to real hostname
 _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v hostname 2>/dev/null || true)
 [[ -n "$_real" ]] && exec "$_real" "$@"
 exit 1
@@ -1788,7 +1788,7 @@ cmd_env() {
 }
 
 # ━━━ cmd_relay.sh ━━━
-# ── cmd: relay（本地中转，绕过 TUN）──────────────────────────────
+# ── cmd: relay (local relay, bypass TUN) ──────────────────────────────
 
 _relay_start() {
     local name="${1:-$(_current_env)}"
@@ -1797,14 +1797,14 @@ _relay_start() {
     [[ -z "$proxy" ]] && return 1
 
     local relay_js="$CAC_DIR/relay.js"
-    [[ -f "$relay_js" ]] || { echo "错误：relay.js 未找到，请运行 'cac setup'" >&2; return 1; }
+    [[ -f "$relay_js" ]] || { echo "error: relay.js not found, run 'cac setup'" >&2; return 1; }
 
-    # 寻找可用端口（17890-17999）
+    # find available port (17890-17999)
     local port=17890
     while (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null; do
         (( port++ ))
         if [[ $port -gt 17999 ]]; then
-            echo "错误：端口 17890-17999 全部被占用" >&2
+            echo "error: all ports 17890-17999 occupied" >&2
             return 1
         fi
     done
@@ -1813,7 +1813,7 @@ _relay_start() {
     node "$relay_js" "$port" "$proxy" "$pid_file" </dev/null >"$CAC_DIR/relay.log" 2>&1 &
     disown
 
-    # 等待 relay 就绪
+    # wait for relay ready
     local _i
     for _i in {1..30}; do
         (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null && break
@@ -1821,7 +1821,7 @@ _relay_start() {
     done
 
     if ! (echo >/dev/tcp/127.0.0.1/$port) 2>/dev/null; then
-        echo "错误：relay 启动超时" >&2
+        echo "error: relay startup timeout" >&2
         return 1
     fi
 
@@ -1835,7 +1835,7 @@ _relay_stop() {
         local pid; pid=$(tr -d '[:space:]' < "$pid_file")
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             kill "$pid" 2>/dev/null
-            # 等待进程退出
+            # wait for process exit
             local _i
             for _i in {1..20}; do
                 kill -0 "$pid" 2>/dev/null || break
@@ -1846,7 +1846,7 @@ _relay_stop() {
     fi
     rm -f "$CAC_DIR/relay.port"
 
-    # 清理路由
+    # cleanup route
     _relay_remove_route 2>/dev/null || true
 }
 
@@ -1857,17 +1857,17 @@ _relay_is_running() {
     [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
-# ── 路由管理（绕过 TUN 的直连路由）──────────────────────────────
+# ── route management (direct route to bypass TUN) ──────────────────────────────
 
 _relay_add_route() {
     local proxy="$1"
     local proxy_host; proxy_host=$(_proxy_host_port "$proxy")
     proxy_host="${proxy_host%%:*}"
 
-    # 跳过已是 IP 的回环地址
+    # skip loopback addresses
     [[ "$proxy_host" == "127."* || "$proxy_host" == "localhost" ]] && return 0
 
-    # 解析为 IP
+    # resolve to IP
     local proxy_ip
     proxy_ip=$(python3 -c "import socket; print(socket.gethostbyname('$proxy_host'))" 2>/dev/null || echo "$proxy_host")
 
@@ -1877,12 +1877,12 @@ _relay_add_route() {
         gateway=$(route -n get default 2>/dev/null | awk '/gateway:/{print $2}')
         [[ -z "$gateway" ]] && return 1
 
-        # 检查是否已有直连路由
+        # check if direct route exists
         local current_gw
         current_gw=$(route -n get "$proxy_ip" 2>/dev/null | awk '/gateway:/{print $2}')
         [[ "$current_gw" == "$gateway" ]] && return 0
 
-        echo "  添加直连路由：$proxy_ip → $gateway（需要 sudo）"
+        echo "  adding direct route: $proxy_ip -> $gateway (needs sudo)"
         sudo route add -host "$proxy_ip" "$gateway" >/dev/null 2>&1 || return 1
         echo "$proxy_ip" > "$CAC_DIR/relay_route_ip"
 
@@ -1892,7 +1892,7 @@ _relay_add_route() {
         iface=$(ip route show default 2>/dev/null | awk '{print $5; exit}')
         [[ -z "$gateway" ]] && return 1
 
-        echo "  添加直连路由：$proxy_ip → $gateway dev $iface（需要 sudo）"
+        echo "  adding direct route: $proxy_ip -> $gateway dev $iface (needs sudo)"
         sudo ip route add "$proxy_ip/32" via "$gateway" dev "$iface" 2>/dev/null || return 1
         echo "$proxy_ip" > "$CAC_DIR/relay_route_ip"
     fi
@@ -1914,7 +1914,7 @@ _relay_remove_route() {
     rm -f "$route_file"
 }
 
-# 检测 TUN 网卡是否活跃
+# detect if TUN interface is active
 _detect_tun_active() {
     local os; os=$(_detect_os)
     if [[ "$os" == "macos" ]]; then
@@ -1928,12 +1928,12 @@ _detect_tun_active() {
     fi
 }
 
-# ── 用户命令 ─────────────────────────────────────────────────────
+# ── user commands ─────────────────────────────────────────────────────
 
 cmd_relay() {
     _require_setup
     local current; current=$(_current_env)
-    [[ -z "$current" ]] && { echo "错误：未激活环境，先运行 'cac <name>'" >&2; exit 1; }
+    [[ -z "$current" ]] && { echo "error: no active environment, run 'cac <name>' first" >&2; exit 1; }
 
     local env_dir="$ENVS_DIR/$current"
     local action="${1:-status}"
@@ -1942,60 +1942,60 @@ cmd_relay() {
     case "$action" in
         on)
             echo "on" > "$env_dir/relay"
-            echo "$(_green "✓") Relay 已启用（环境：$(_bold "$current")）"
+            echo "$(_green "✓") Relay enabled (env: $(_bold "$current"))"
 
-            # --route 标志：添加直连路由
+            # --route flag: add direct route
             if [[ "$flag" == "--route" ]]; then
                 local proxy; proxy=$(_read "$env_dir/proxy")
                 _relay_add_route "$proxy"
             fi
 
-            # 如果 relay 没在运行，启动它
+            # start relay if not running
             if ! _relay_is_running; then
-                printf "  启动 relay ... "
+                printf "  starting relay ... "
                 if _relay_start "$current"; then
                     local port; port=$(_read "$CAC_DIR/relay.port")
                     echo "$(_green "✓") 127.0.0.1:$port"
                 else
-                    echo "$(_red "✗ 启动失败")"
+                    echo "$(_red "✗ failed to start")"
                 fi
             fi
-            echo "  下次启动 claude 时将自动通过本地中转连接代理"
+            echo "  next claude launch will automatically connect via local relay"
             ;;
         off)
             rm -f "$env_dir/relay"
             _relay_stop
-            echo "$(_green "✓") Relay 已停用（环境：$(_bold "$current")）"
+            echo "$(_green "✓") Relay disabled (env: $(_bold "$current"))"
             ;;
         status)
             if [[ -f "$env_dir/relay" ]] && [[ "$(_read "$env_dir/relay")" == "on" ]]; then
-                echo "Relay 模式：$(_green "已启用")"
+                echo "Relay mode: $(_green "enabled")"
             else
-                echo "Relay 模式：未启用"
+                echo "Relay mode: disabled"
                 if _detect_tun_active; then
-                    echo "  $(_yellow "⚠") 检测到 TUN 模式，建议运行 'cac relay on'"
+                    echo "  $(_yellow "⚠") TUN mode detected, consider running 'cac relay on'"
                 fi
                 return
             fi
 
             if _relay_is_running; then
                 local pid; pid=$(_read "$CAC_DIR/relay.pid")
-                local port; port=$(_read "$CAC_DIR/relay.port" "未知")
-                echo "Relay 进程：$(_green "运行中") (PID=$pid, 端口=$port)"
+                local port; port=$(_read "$CAC_DIR/relay.port" "unknown")
+                echo "Relay process: $(_green "running") (PID=$pid, port=$port)"
             else
-                echo "Relay 进程：$(_yellow "未启动")（将在 claude 启动时自动启动）"
+                echo "Relay process: $(_yellow "not started") (will auto-start with claude)"
             fi
 
             if [[ -f "$CAC_DIR/relay_route_ip" ]]; then
                 local route_ip; route_ip=$(_read "$CAC_DIR/relay_route_ip")
-                echo "直连路由  ：$route_ip"
+                echo "Direct route: $route_ip"
             fi
             ;;
         *)
-            echo "用法：cac relay [on|off|status]" >&2
-            echo "  on [--route]  启用本地中转（--route 添加直连路由绕过 TUN）" >&2
-            echo "  off           停用本地中转" >&2
-            echo "  status        查看状态" >&2
+            echo "usage: cac relay [on|off|status]" >&2
+            echo "  on [--route]  enable local relay (--route adds direct route to bypass TUN)" >&2
+            echo "  off           disable local relay" >&2
+            echo "  status        show status" >&2
             ;;
     esac
 }
@@ -2199,17 +2199,17 @@ cmd_stop() {
 
 cmd_continue() {
     if [[ ! -f "$CAC_DIR/stopped" ]]; then
-        echo "cac 当前未停用，无需恢复"
+        echo "cac is not stopped, no need to resume"
         return
     fi
 
     local current; current=$(_current_env)
     if [[ -z "$current" ]]; then
-        echo "错误：没有已激活的环境，运行 'cac <name>'" >&2; exit 1
+        echo "error: no active environment, run 'cac <name>'" >&2; exit 1
     fi
 
     rm -f "$CAC_DIR/stopped"
-    echo "$(_green "✓") cac 已恢复 — 当前环境：$(_bold "$current")"
+    echo "$(_green "✓") cac resumed — current env: $(_bold "$current")"
 }
 
 # ━━━ cmd_claude.sh ━━━
@@ -2939,7 +2939,7 @@ cmd_docker() {
 }
 
 # ━━━ cmd_delete.sh ━━━
-# ── cmd: delete（卸载）────────────────────────────────────────
+# ── cmd: delete (uninstall) ────────────────────────────────────────
 
 cmd_delete() {
     echo "=== cac delete ==="
@@ -2950,50 +2950,50 @@ cmd_delete() {
 
     _remove_path_from_rc "$rc_file"
 
-    # 停止 relay 进程和路由
+    # stop relay processes and routes
     if [[ -d "$CAC_DIR" ]]; then
         _relay_stop 2>/dev/null || true
 
-        # 停止 docker port-forward 进程
+        # stop docker port-forward processes
         if [[ -d /tmp/cac-docker-ports ]]; then
             for _pf in /tmp/cac-docker-ports/*.pid; do
                 [[ -f "$_pf" ]] || continue
                 kill "$(cat "$_pf")" 2>/dev/null || true
                 rm -f "$_pf"
             done
-            echo "  ✓ 已停止 docker port-forward 进程"
+            echo "  ✓ stopped docker port-forward processes"
         fi
 
-        # 兜底：清理可能残留的 relay 孤儿进程
+        # fallback: clean up orphaned relay processes
         pkill -f "node.*\.cac/relay\.js" 2>/dev/null || true
 
         rm -rf "$CAC_DIR"
-        echo "  ✓ 已删除 $CAC_DIR"
+        echo "  ✓ deleted $CAC_DIR"
     else
-        echo "  - $CAC_DIR 不存在，跳过"
+        echo "  - $CAC_DIR does not exist, skipping"
     fi
 
     local method
     method=$(_install_method)
     echo
     if [[ "$method" == "npm" ]]; then
-        echo "  ✓ 已清除所有 cac 数据和配置"
+        echo "  ✓ cleared all cac data and config"
         echo
-        echo "要完全卸载 cac 命令，请执行："
+        echo "to fully uninstall the cac command, run:"
         echo "  npm uninstall -g claude-cac"
     else
         if [[ -f "$HOME/bin/cac" ]]; then
             rm -f "$HOME/bin/cac"
-            echo "  ✓ 已删除 $HOME/bin/cac"
+            echo "  ✓ deleted $HOME/bin/cac"
         fi
-        echo "  ✓ 卸载完成"
+        echo "  ✓ uninstall complete"
     fi
 
     echo
     if [[ -n "$rc_file" ]]; then
-        echo "请重开终端或执行 source $rc_file 使变更生效。"
+        echo "please restart terminal or run source $rc_file for changes to take effect."
     else
-        echo "请重开终端使变更生效。"
+        echo "please restart terminal for changes to take effect."
     fi
 }
 
@@ -3045,7 +3045,7 @@ cmd_help() {
 }
 
 # ━━━ main.sh ━━━
-# ── 入口：分发命令 ──────────────────────────────────────────────
+# ── entry: dispatch commands ──────────────────────────────────────────────
 
 [[ $# -eq 0 ]] && { cmd_help; exit 0; }
 

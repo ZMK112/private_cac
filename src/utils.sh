@@ -1,4 +1,4 @@
-# ── utils: 颜色、读写、UUID、proxy 解析 ───────────────────────
+# ── utils: colors, read/write, UUID, proxy parsing ───────────────────────
 
 # shellcheck disable=SC2034  # used in build-concatenated cac script
 CAC_VERSION="1.2.1"
@@ -38,7 +38,7 @@ _new_machine_id() { _gen_uuid | tr -d '-' | tr '[:upper:]' '[:lower:]'; }
 _new_hostname() { echo "host-$(_gen_uuid | cut -d- -f1 | tr '[:upper:]' '[:lower:]')"; }
 _new_mac() { printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)); }
 
-# 获取真实命令路径（绕过 shim）
+# Get real command path (bypass shim)
 _get_real_cmd() {
     local cmd="$1"
     PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
@@ -46,15 +46,15 @@ _get_real_cmd() {
 }
 
 # host:port:user:pass → http://user:pass@host:port
-# 或直接传入完整 URL（http://、https://、socks5://）
+# or pass a full URL directly (http://, https://, socks5://)
 _parse_proxy() {
     local raw="$1"
-    # 如果已经是完整 URL，直接返回
+    # Already a full URL, return as-is
     if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
         echo "$raw"
         return
     fi
-    # 否则解析 host:port:user:pass 格式
+    # Parse host:port:user:pass format
     local host port user pass
     host=$(echo "$raw" | cut -d: -f1)
     port=$(echo "$raw" | cut -d: -f2)
@@ -80,11 +80,11 @@ _proxy_reachable() {
     (echo >/dev/tcp/"$host"/"$port") 2>/dev/null
 }
 
-# 自动检测代理协议（当用户未指定 http/socks5/https 时）
-# 用法：_auto_detect_proxy "host:port:user:pass" → 返回可用的完整 URL
+# Auto-detect proxy protocol (when user didn't specify http/socks5/https)
+# Usage: _auto_detect_proxy "host:port:user:pass" → returns a working full URL
 _auto_detect_proxy() {
     local raw="$1"
-    # 已有协议前缀，直接返回
+    # Has protocol prefix, return as-is
     if [[ "$raw" =~ ^(http|https|socks5):// ]]; then
         echo "$raw"
         return 0
@@ -101,7 +101,7 @@ _auto_detect_proxy() {
         auth_part=""
     fi
 
-    # 依次尝试 http → socks5 → https
+    # Try in order: http → socks5 → https
     local proto try_url
     for proto in http socks5 https; do
         try_url="${proto}://${auth_part}${host}:${port}"
@@ -111,7 +111,7 @@ _auto_detect_proxy() {
         fi
     done
 
-    # 全部失败，回退 http
+    # All failed, fallback to http
     if [[ -n "$user" ]]; then
         echo "http://${auth_part}${host}:${port}"
     else
@@ -245,7 +245,7 @@ _require_setup() {
 
 _require_env() {
     [[ -d "$ENVS_DIR/$1" ]] || {
-        echo "错误：环境 '$1' 不存在，用 'cac ls' 查看" >&2; exit 1
+        echo "error: environment '$1' not found, use 'cac ls' to list" >&2; exit 1
     }
 }
 
@@ -278,7 +278,7 @@ _install_method() {
     local resolved="$self"
     if [[ -L "$self" ]]; then
         resolved=$(readlink "$self" 2>/dev/null || echo "$self")
-        # 处理相对路径的符号链接
+        # Handle relative symlinks
         if [[ "$resolved" != /* ]]; then
             resolved="$(dirname "$self")/$resolved"
         fi
@@ -293,18 +293,18 @@ _install_method() {
 _write_path_to_rc() {
     local rc_file="${1:-$(_detect_rc_file)}"
     if [[ -z "$rc_file" ]]; then
-        echo "  $(_yellow '⚠') 未找到 shell 配置文件，请手动添加 PATH："
+        echo "  $(_yellow '⚠') shell config file not found, please add PATH manually:"
         echo '    export PATH="$HOME/bin:$PATH"'
         echo '    export PATH="$HOME/.cac/bin:$PATH"'
         return 0
     fi
 
     if grep -q '# >>> cac >>>' "$rc_file" 2>/dev/null; then
-        echo "  ✓ PATH 已存在于 $rc_file，跳过"
+        echo "  ✓ PATH already exists in $rc_file, skipping"
         return 0
     fi
 
-    # 兼容旧格式：如果存在旧的 cac PATH 行，先移除
+    # Compat: remove old format if present
     if grep -q '\.cac/bin' "$rc_file" 2>/dev/null; then
         _remove_path_from_rc "$rc_file"
     fi
@@ -326,7 +326,7 @@ cac() {
 }
 # <<< cac — Claude Code Cloak <<<
 CACEOF
-    echo "  ✓ PATH 已写入 $rc_file"
+    echo "  ✓ PATH written to $rc_file"
     return 0
 }
 
@@ -334,23 +334,23 @@ _remove_path_from_rc() {
     local rc_file="${1:-$(_detect_rc_file)}"
     [[ -z "$rc_file" ]] && return 0
 
-    # 移除标记块格式（新格式）
+    # Remove marked block (new format)
     if grep -q '# >>> cac' "$rc_file" 2>/dev/null; then
         local tmp="${rc_file}.cac-tmp"
         awk '/# >>> cac/{skip=1; next} /# <<< cac/{skip=0; next} !skip' "$rc_file" > "$tmp"
         cat -s "$tmp" > "$rc_file"
         rm -f "$tmp"
-        echo "  ✓ 已从 $rc_file 移除 PATH 配置"
+        echo "  ✓ Removed PATH config from $rc_file"
         return 0
     fi
 
-    # 兼容旧格式
+    # Compat: old format
     if grep -qE '(\.cac/bin|# cac —)' "$rc_file" 2>/dev/null; then
         local tmp="${rc_file}.cac-tmp"
         grep -vE '(# cac — Claude Code Cloak|\.cac/bin|# cac 命令|# claude wrapper)' "$rc_file" > "$tmp" || true
         cat -s "$tmp" > "$rc_file"
         rm -f "$tmp"
-        echo "  ✓ 已从 $rc_file 移除 PATH 配置（旧格式）"
+        echo "  ✓ Removed PATH config from $rc_file (old format)"
         return 0
     fi
 }

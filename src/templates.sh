@@ -1,6 +1,6 @@
-# ── templates: 写入 wrapper、shim、环境初始化 ──────────────────
+# ── templates: wrapper, shim, env init ──────────────────
 
-# 写入 statusline-command.sh 到环境 .claude 目录
+# write statusline-command.sh to env .claude dir
 _write_statusline_script() {
     local config_dir="$1"
     cat > "$config_dir/statusline-command.sh" << 'STATUSLINE_EOF'
@@ -93,7 +93,7 @@ STATUSLINE_EOF
     chmod +x "$config_dir/statusline-command.sh"
 }
 
-# 写入 settings.json 到环境 .claude 目录
+# write settings.json to env .claude dir
 _write_env_settings() {
     local config_dir="$1"
     cat > "$config_dir/settings.json" << 'SETTINGS_EOF'
@@ -110,7 +110,7 @@ _write_env_settings() {
 SETTINGS_EOF
 }
 
-# 写入 CLAUDE.md 到环境 .claude 目录
+# write CLAUDE.md to env .claude dir
 _write_env_claude_md() {
     local config_dir="$1"
     local env_name="$2"
@@ -139,25 +139,25 @@ set -euo pipefail
 CAC_DIR="$HOME/.cac"
 ENVS_DIR="$CAC_DIR/envs"
 
-# cacstop 状态：直接透传
+# cacstop state: passthrough directly
 if [[ -f "$CAC_DIR/stopped" ]]; then
     _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude" 2>/dev/null || true)
     [[ -x "$_real" ]] && exec "$_real" "$@"
-    echo "[cac] 错误：找不到真实 claude，运行 'cac setup'" >&2; exit 1
+    echo "[cac] error: real claude not found, run 'cac setup'" >&2; exit 1
 fi
 
-# 读取当前环境
+# read current environment
 if [[ ! -f "$CAC_DIR/current" ]]; then
-    echo "[cac] 错误：未激活任何环境，运行 'cac <name>'" >&2; exit 1
+    echo "[cac] error: no active environment, run 'cac <name>'" >&2; exit 1
 fi
 _name=$(tr -d '[:space:]' < "$CAC_DIR/current")
 _env_dir="$ENVS_DIR/$_name"
-[[ -d "$_env_dir" ]] || { echo "[cac] 错误：环境 '$_name' 不存在" >&2; exit 1; }
+[[ -d "$_env_dir" ]] || { echo "[cac] error: environment '$_name' not found" >&2; exit 1; }
 
 # Isolated .claude config directory
 if [[ -d "$_env_dir/.claude" ]]; then
     export CLAUDE_CONFIG_DIR="$_env_dir/.claude"
-    # 确保 settings.json 存在，阻止 Claude Code fallback 到 ~/.claude/settings.json
+    # ensure settings.json exists, prevent Claude Code fallback to ~/.claude/settings.json
     [[ -f "$_env_dir/.claude/settings.json" ]] || echo '{}' > "$_env_dir/.claude/settings.json"
 fi
 
@@ -168,18 +168,18 @@ if [[ -f "$_env_dir/proxy" ]]; then
 fi
 
 if [[ -n "$PROXY" ]]; then
-    # pre-flight：代理连通性（纯 bash，无 fork）
+    # pre-flight: proxy connectivity (pure bash, no fork)
     _hp="${PROXY##*@}"; _hp="${_hp##*://}"
     _host="${_hp%%:*}"
     _port="${_hp##*:}"
     if ! (echo >/dev/tcp/"$_host"/"$_port") 2>/dev/null; then
-        echo "[cac] 错误：[$_name] 代理 $_hp 不通，拒绝启动。" >&2
-        echo "[cac] 提示：运行 'cac check' 排查，或 'cac stop' 临时停用" >&2
+        echo "[cac] error: [$_name] proxy $_hp unreachable, refusing to start." >&2
+        echo "[cac] hint: run 'cac check' to diagnose, or 'cac stop' to disable temporarily" >&2
         exit 1
     fi
 fi
 
-# 注入 statsig stable_id
+# inject statsig stable_id
 if [[ -f "$_env_dir/stable_id" ]]; then
     _sid=$(tr -d '[:space:]' < "$_env_dir/stable_id")
     _config_dir="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
@@ -192,7 +192,7 @@ if [[ -f "$_env_dir/stable_id" ]]; then
     fi
 fi
 
-# 注入环境变量 —— 代理（仅在配置了代理时）
+# inject env vars — proxy (only when proxy is configured)
 if [[ -n "$PROXY" ]]; then
     export _CAC_PROXY="$PROXY"
     export HTTPS_PROXY="$PROXY" HTTP_PROXY="$PROXY" ALL_PROXY="$PROXY"
@@ -200,45 +200,45 @@ if [[ -n "$PROXY" ]]; then
 fi
 export PATH="$CAC_DIR/shim-bin:$PATH"
 
-# ── 多层环境变量遥测保护 ──
-# Layer 1: Claude Code 原生开关
+# ── multi-layer telemetry protection ──
+# Layer 1: Claude Code native toggle
 export CLAUDE_CODE_ENABLE_TELEMETRY=
-# Layer 2: 通用遥测标准 (https://consoledonottrack.com)
+# Layer 2: universal telemetry opt-out (https://consoledonottrack.com)
 export DO_NOT_TRACK=1
-# Layer 3: OpenTelemetry SDK 全面禁用
+# Layer 3: OpenTelemetry SDK fully disabled
 export OTEL_SDK_DISABLED=true
 export OTEL_TRACES_EXPORTER=none
 export OTEL_METRICS_EXPORTER=none
 export OTEL_LOGS_EXPORTER=none
-# Layer 4: Sentry DSN 置空，阻止错误上报
+# Layer 4: empty Sentry DSN, block error reporting
 export SENTRY_DSN=
-# Layer 5: Claude Code 特有开关
+# Layer 5: Claude Code specific toggles
 export DISABLE_ERROR_REPORTING=1
 export DISABLE_BUG_COMMAND=1
 export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1
-# Layer 6: 其他已知遥测标志
+# Layer 6: other known telemetry flags
 export TELEMETRY_DISABLED=1
 export DISABLE_TELEMETRY=1
 
-# 有代理时：强制走 OAuth（清除 API 配置防泄露）
-# 无代理时：保留用户的 API Key / Base URL
+# with proxy: force OAuth (clear API config to prevent leaks)
+# without proxy: preserve user's API Key / Base URL
 if [[ -n "$PROXY" ]]; then
     unset ANTHROPIC_BASE_URL
     unset ANTHROPIC_AUTH_TOKEN
     unset ANTHROPIC_API_KEY
 fi
 
-# ── NS 层级 DNS 拦截 ──
+# ── NS-level DNS interception ──
 if [[ -f "$CAC_DIR/cac-dns-guard.js" ]]; then
     case "${NODE_OPTIONS:-}" in
-        *cac-dns-guard.js*) ;; # 已注入，跳过
+        *cac-dns-guard.js*) ;; # already injected, skip
         *) export NODE_OPTIONS="${NODE_OPTIONS:-} --require $CAC_DIR/cac-dns-guard.js" ;;
     esac
 fi
-# 备用层：HOSTALIASES（gethostbyname 级别）
+# fallback layer: HOSTALIASES (gethostbyname level)
 [[ -f "$CAC_DIR/blocked_hosts" ]] && export HOSTALIASES="$CAC_DIR/blocked_hosts"
 
-# ── mTLS 客户端证书 ──
+# ── mTLS client certificate ──
 if [[ -f "$_env_dir/client_cert.pem" ]] && [[ -f "$_env_dir/client_key.pem" ]]; then
     export CAC_MTLS_CERT="$_env_dir/client_cert.pem"
     export CAC_MTLS_KEY="$_env_dir/client_key.pem"
@@ -249,7 +249,7 @@ if [[ -f "$_env_dir/client_cert.pem" ]] && [[ -f "$_env_dir/client_key.pem" ]]; 
     [[ -n "${_hp:-}" ]] && export CAC_PROXY_HOST="$_hp"
 fi
 
-# 确保 CA 证书始终被信任（mTLS 需要）
+# ensure CA cert is always trusted (required for mTLS)
 [[ -f "$CAC_DIR/ca/ca_cert.pem" ]] && export NODE_EXTRA_CA_CERTS="$CAC_DIR/ca/ca_cert.pem"
 
 [[ -f "$_env_dir/tz" ]]   && export TZ=$(tr -d '[:space:]' < "$_env_dir/tz")
@@ -259,18 +259,18 @@ if [[ -f "$_env_dir/hostname" ]]; then
     export HOSTNAME="$_hn" CAC_HOSTNAME="$_hn"
 fi
 
-# Node.js 级指纹拦截（绕过 shell shim 限制）
+# Node.js-level fingerprint interception (bypasses shell shim limitations)
 [[ -f "$_env_dir/mac_address" ]] && export CAC_MAC=$(tr -d '[:space:]' < "$_env_dir/mac_address")
 [[ -f "$_env_dir/machine_id" ]]  && export CAC_MACHINE_ID=$(tr -d '[:space:]' < "$_env_dir/machine_id")
 export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
 if [[ -f "$CAC_DIR/fingerprint-hook.js" ]]; then
     case "${NODE_OPTIONS:-}" in
-        *fingerprint-hook.js*) ;; # 已注入，跳过
+        *fingerprint-hook.js*) ;; # already injected, skip
         *) export NODE_OPTIONS="--require $CAC_DIR/fingerprint-hook.js ${NODE_OPTIONS:-}" ;;
     esac
 fi
 
-# 执行真实 claude — versioned binary or system fallback
+# exec real claude — versioned binary or system fallback
 _real=""
 if [[ -f "$_env_dir/version" ]]; then
     _ver=$(tr -d '[:space:]' < "$_env_dir/version")
@@ -280,23 +280,23 @@ fi
 if [[ -z "$_real" ]] || [[ ! -x "$_real" ]]; then
     _real=$(tr -d '[:space:]' < "$CAC_DIR/real_claude")
 fi
-[[ -x "$_real" ]] || { echo "[cac] 错误：找不到 claude，运行 'cac setup'" >&2; exit 1; }
+[[ -x "$_real" ]] || { echo "[cac] error: claude not found, run 'cac setup'" >&2; exit 1; }
 
-# ── Relay 本地中转（有代理时始终启用）──
+# ── Relay local forwarding (always enabled when proxy is set) ──
 _relay_active=false
 if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
     _relay_js="$CAC_DIR/relay.js"
     _relay_pid_file="$CAC_DIR/relay.pid"
     _relay_port_file="$CAC_DIR/relay.port"
 
-    # 检查 relay 是否已在运行
+    # check if relay is already running
     _relay_running=false
     if [[ -f "$_relay_pid_file" ]]; then
         _rpid=$(tr -d '[:space:]' < "$_relay_pid_file")
         kill -0 "$_rpid" 2>/dev/null && _relay_running=true
     fi
 
-    # 未运行则启动
+    # start if not running
     if [[ "$_relay_running" != "true" ]] && [[ -f "$_relay_js" ]]; then
         _rport=17890
         while (echo >/dev/tcp/127.0.0.1/$_rport) 2>/dev/null; do
@@ -312,7 +312,7 @@ if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
         echo "$_rport" > "$_relay_port_file"
     fi
 
-    # 覆盖代理指向本地 relay
+    # override proxy to point to local relay
     if [[ -f "$_relay_port_file" ]]; then
         _rport=$(tr -d '[:space:]' < "$_relay_port_file")
         export HTTPS_PROXY="http://127.0.0.1:$_rport"
@@ -322,9 +322,9 @@ if [[ -n "$PROXY" ]] && [[ -f "$CAC_DIR/relay.js" ]]; then
     fi
 fi
 
-# 清理函数
+# cleanup function
 _cleanup_all() {
-    # 清理 relay
+    # cleanup relay
     if [[ "$_relay_active" == "true" ]] && [[ -f "$CAC_DIR/relay.pid" ]]; then
         local _p; _p=$(cat "$CAC_DIR/relay.pid" 2>/dev/null) || true
         [[ -n "$_p" ]] && kill "$_p" 2>/dev/null || true
@@ -347,7 +347,7 @@ _write_ioreg_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 非目标调用：透传真实 ioreg
+# non-target call: passthrough to real ioreg
 if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
     _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
             command -v ioreg 2>/dev/null || true)
@@ -355,7 +355,7 @@ if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
     exit 0
 fi
 
-# 读取当前环境的 UUID
+# read current env UUID
 _uuid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/uuid"
 if [[ ! -f "$_uuid_file" ]]; then
     _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
@@ -385,10 +385,10 @@ _write_machine_id_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 先获取真实 cat 路径（避免递归调用自身）
+# get real cat path first (avoid recursive self-call)
 _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v cat 2>/dev/null || true)
 
-# 拦截 /etc/machine-id 和 /var/lib/dbus/machine-id
+# intercept /etc/machine-id and /var/lib/dbus/machine-id
 if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; then
     _mid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/machine_id"
     if [[ -f "$_mid_file" ]] && [[ -n "$_real" ]]; then
@@ -396,7 +396,7 @@ if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; 
     fi
 fi
 
-# 非目标调用：透传真实 cat
+# non-target call: passthrough to real cat
 [[ -n "$_real" ]] && exec "$_real" "$@"
 exit 1
 CAT_EOF
@@ -409,14 +409,14 @@ _write_hostname_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-# 读取伪造的 hostname
+# read spoofed hostname
 _hn_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/hostname"
 if [[ -f "$_hn_file" ]]; then
     tr -d '[:space:]' < "$_hn_file"
     exit 0
 fi
 
-# 透传真实 hostname
+# passthrough to real hostname
 _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v hostname 2>/dev/null || true)
 [[ -n "$_real" ]] && exec "$_real" "$@"
 exit 1
