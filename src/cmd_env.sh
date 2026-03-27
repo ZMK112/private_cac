@@ -193,6 +193,7 @@ MERGE_EOF
 }
 
 _env_cmd_ls() {
+    _require_setup
     if [[ ! -d "$ENVS_DIR" ]] || [[ -z "$(ls -A "$ENVS_DIR" 2>/dev/null)" ]]; then
         echo "$(_dim "  No environments yet.")"
         echo "  Run $(_green "cac env create <name>") to get started."

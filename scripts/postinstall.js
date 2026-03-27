@@ -27,6 +27,44 @@ try {
   // Non-fatal — _ensure_initialized will catch it on first cac command
 }
 
+// Patch existing wrapper for known bugs — pure Node.js, no shell execution needed.
+// Users who upgrade via npm install keep their old ~/.cac/bin/claude until _ensure_initialized
+// runs (triggered by any cac command). This patch fixes critical bugs immediately.
+var wrapperPath = path.join(cacDir, 'bin', 'claude');
+if (home && fs.existsSync(wrapperPath)) {
+  try {
+    var wrapperContent = fs.readFileSync(wrapperPath, 'utf8');
+    var patched = wrapperContent;
+    // Fix: pgrep returns exit 1 when no claude process exists; under set -euo pipefail
+    // this aborts the wrapper before launching claude (claude appears to do nothing).
+    var buggyPgrep = '_claude_count=$(pgrep -x "claude" 2>/dev/null | wc -l | tr -d \'[:space:]\')';
+    var fixedPgrep = buggyPgrep + ' || _claude_count=0';
+    if (patched.indexOf(buggyPgrep) !== -1 && patched.indexOf(fixedPgrep) === -1) {
+      patched = patched.replace(buggyPgrep, fixedPgrep);
+    }
+    if (patched !== wrapperContent) {
+      fs.writeFileSync(wrapperPath, patched);
+    }
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
+// Trigger _ensure_initialized to fully regenerate wrapper to current version.
+// cac env ls now calls _require_setup (fixed in 1.4.3+).
+if (home) {
+  try {
+    var spawnSync = require('child_process').spawnSync;
+    spawnSync(cacBin, ['env', 'ls'], {
+      stdio: 'ignore',
+      timeout: 8000,
+      env: Object.assign({}, process.env, { HOME: home })
+    });
+  } catch (e) {
+    // Non-fatal
+  }
+}
+
 console.log([
   '',
   '  claude-cac installed successfully',
