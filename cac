@@ -1384,15 +1384,26 @@ if [[ ! -f "$_uuid_file" ]]; then
     exit 0
 fi
 FAKE_UUID=$(tr -d '[:space:]' < "$_uuid_file")
+SERIAL_FILE="$CAC_DIR/host_serial_number"
+MANUFACTURER_FILE="$CAC_DIR/host_manufacturer"
+MODEL_FILE="$CAC_DIR/host_model"
+
+FAKE_SERIAL="C02FAKE000001"
+FAKE_MANUFACTURER="Apple Inc."
+FAKE_MODEL="Mac14,5"
+
+[[ -f "$SERIAL_FILE" ]] && FAKE_SERIAL=$(tr -d '\r\n' < "$SERIAL_FILE")
+[[ -f "$MANUFACTURER_FILE" ]] && FAKE_MANUFACTURER=$(tr -d '\r\n' < "$MANUFACTURER_FILE")
+[[ -f "$MODEL_FILE" ]] && FAKE_MODEL=$(tr -d '\r\n' < "$MODEL_FILE")
 
 cat <<EOF
 +-o Root  <class IORegistryEntry, id 0x100000100, retain 11>
   +-o J314sAP  <class IOPlatformExpertDevice, id 0x100000101, registered, matched, active, busy 0 (0 ms), retain 28>
     {
       "IOPlatformUUID" = "$FAKE_UUID"
-      "IOPlatformSerialNumber" = "C02FAKE000001"
-      "manufacturer" = "Apple Inc."
-      "model" = "Mac14,5"
+      "IOPlatformSerialNumber" = "$FAKE_SERIAL"
+      "manufacturer" = "$FAKE_MANUFACTURER"
+      "model" = "$FAKE_MODEL"
     }
 EOF
 IOREG_EOF

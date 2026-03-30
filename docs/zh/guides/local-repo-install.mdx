@@ -1,0 +1,104 @@
+---
+title: "从同步后的本地仓库安装"
+description: "安装当前 cac 仓库里的精确代码，包括你本地做过的修改。"
+icon: "server"
+---
+
+适用于这些场景：
+
+- 你已经把仓库同步到了另一台服务器
+- 你做过本地修改，必须安装这些修改后的代码
+- 你希望用一个脚本完成构建、身份确认、安装和初始化
+
+## 一条命令安装
+
+在仓库根目录执行：
+
+```bash
+bash install.sh
+```
+
+现在安装脚本会在检测到有效仓库时，自动优先使用当前本地仓库代码，而不是回退到 GitHub 下载。
+
+## 安装脚本会做什么
+
+在本地仓库模式下，`install.sh` 会：
+
+1. 先执行 `build.sh`，确保生成的 `cac` 与当前源码一致
+2. 在 macOS 上扫描宿主机身份值：
+   - `Model Identifier`
+   - `Serial Number (system)`
+   - `manufacturer`
+3. 让你选择：
+   - 接受扫描结果
+   - 保留已有的 `~/.cac/host_*` 文件
+   - 安装前手动修改
+   - 跳过这一步
+4. 把运行时文件安装到：
+
+```text
+~/.cac-dist/cac
+~/.cac-dist/relay.js
+~/.cac-dist/fingerprint-hook.js
+```
+
+5. 创建入口：
+
+```text
+~/bin/cac -> ~/.cac-dist/cac
+```
+
+6. 自动初始化 `~/.cac/`
+
+## macOS 身份确认
+
+在 macOS 上，安装脚本默认是交互式的。扫描出身份值后，你可以在安装前手动修改。
+
+保存后的文件都是纯文本：
+
+```text
+~/.cac/host_model
+~/.cac/host_serial_number
+~/.cac/host_manufacturer
+```
+
+安装完成后也可以继续手动修改：
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
+```
+
+这些文件当前只影响 macOS 下的 `ioreg` shim，不影响 Linux 现有的身份 shim 路径。
+
+## 非交互参数
+
+```bash
+# 无提示安装，接受默认值
+bash install.sh --yes
+
+# 跳过 macOS 身份扫描
+bash install.sh --skip-identity
+
+# 用当前机器新扫描到的值覆盖已有 host 文件
+bash install.sh --force-identity --yes
+
+# 强制使用本地仓库模式
+bash install.sh --local
+
+# 强制使用 GitHub 原始文件下载模式
+bash install.sh --remote
+```
+
+## 安装后验证
+
+安装完成后：
+
+```bash
+source ~/.zshrc   # 或重新打开终端
+command -v cac
+cac env ls
+```
+
+正常情况下你会看到入口是 `~/bin/cac`。

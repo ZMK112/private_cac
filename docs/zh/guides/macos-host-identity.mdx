@@ -1,0 +1,89 @@
+---
+title: "使用 macOS 宿主机身份信息"
+description: "把当前 Mac 的机型和序列号写入 cac 的可选宿主机身份文件。"
+icon: "laptop"
+---
+
+默认情况下，cac 在 macOS 上的 `ioreg` shim 会为 `IOPlatformSerialNumber`、`manufacturer` 和 `model` 使用内置回退值。
+
+如果你希望 shim 返回当前这台 Mac 的真实值，可以使用下面这个辅助脚本。
+
+## 会写入什么
+
+脚本会在 `~/.cac/` 下写入 3 个纯文本文件：
+
+```text
+~/.cac/host_model
+~/.cac/host_serial_number
+~/.cac/host_manufacturer
+```
+
+现在 `ioreg` shim 会优先读取这些文件；如果文件不存在，再回退到内置默认值。
+
+## 从当前 Mac 生成
+
+在 cac 仓库目录下运行：
+
+```bash
+chmod +x scripts/export-macos-host-identity.sh
+./scripts/export-macos-host-identity.sh
+```
+
+示例输出：
+
+```text
+model=Mac14,5
+serial=C02ABC123XYZ
+manufacturer=Apple Inc.
+wrote: /Users/you/.cac/host_model
+wrote: /Users/you/.cac/host_serial_number
+wrote: /Users/you/.cac/host_manufacturer
+```
+
+写入完成后，执行任意一次 `cac` 命令，确保当前 wrapper/shim 已刷新：
+
+```bash
+cac env ls
+```
+
+## 支持手动修改
+
+生成后的文件都是纯文本，之后可以随时手动编辑：
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
+```
+
+适合这些场景：
+
+- 使用宿主机真实值
+- 使用你自己指定的稳定假值
+- 测试不同的机型/序列号组合
+
+## 覆盖行为
+
+默认情况下，脚本**不会**覆盖已有文件，这样不会误伤你手动修改过的内容。
+
+```bash
+./scripts/export-macos-host-identity.sh
+```
+
+如果文件已存在，脚本会对每个文件输出 `skip:`。
+
+如果你明确要用当前机器的新值覆盖它们，使用 `--force`：
+
+```bash
+./scripts/export-macos-host-identity.sh --force
+```
+
+如果你只想查看检测到的值而不写文件，使用 `--print-only`：
+
+```bash
+./scripts/export-macos-host-identity.sh --print-only
+```
+
+## 重要提示
+
+一旦使用真实序列号和机型，你的身份隔离能力会下降。只要 Claude Code 是通过 shim 读取 `ioreg`，它看到的就会是这些真实值，而不是 cac 的通用回退值。

@@ -1,0 +1,104 @@
+---
+title: "Install from a synced local repo"
+description: "Install the exact code in your current cac repo, including local modifications."
+icon: "server"
+---
+
+Use this workflow when:
+
+- You synced this repo to another server
+- You made local changes and need those exact changes installed
+- You want one script to build, review host identity values, install, and initialize
+
+## One-command install
+
+From the repo root:
+
+```bash
+bash install.sh
+```
+
+The installer now prefers the current local repo automatically when it detects a valid checkout.
+
+## What the installer does
+
+In local-repo mode, `install.sh`:
+
+1. Runs `build.sh` so the generated `cac` matches your current source tree
+2. On macOS, scans host identity values:
+   - `Model Identifier`
+   - `Serial Number (system)`
+   - `manufacturer`
+3. Lets you:
+   - accept detected values
+   - keep existing `~/.cac/host_*` files
+   - edit values manually before install
+   - skip the identity step
+4. Installs runtime files into:
+
+```text
+~/.cac-dist/cac
+~/.cac-dist/relay.js
+~/.cac-dist/fingerprint-hook.js
+```
+
+5. Creates:
+
+```text
+~/bin/cac -> ~/.cac-dist/cac
+```
+
+6. Initializes `~/.cac/`
+
+## macOS identity review
+
+On macOS, the installer is interactive by default. If detected values are shown, you can choose to edit them before install.
+
+The saved files are plain text:
+
+```text
+~/.cac/host_model
+~/.cac/host_serial_number
+~/.cac/host_manufacturer
+```
+
+You can edit them again later:
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
+```
+
+These files are used by the macOS `ioreg` shim. They do not affect Linux's current identity shim path.
+
+## Non-interactive options
+
+```bash
+# Accept defaults without prompts
+bash install.sh --yes
+
+# Skip macOS identity scanning
+bash install.sh --skip-identity
+
+# Overwrite existing macOS host identity files with freshly detected values
+bash install.sh --force-identity --yes
+
+# Force local-repo mode
+bash install.sh --local
+
+# Force GitHub raw download mode
+bash install.sh --remote
+```
+
+## Verify install
+
+After installation:
+
+```bash
+source ~/.zshrc   # or reopen the terminal
+command -v cac
+cac env ls
+```
+
+You should see `~/bin/cac` as the entrypoint.

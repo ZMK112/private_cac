@@ -1,0 +1,89 @@
+---
+title: "Use macOS host identity values"
+description: "Capture your current Mac's model and serial into cac's optional host identity files."
+icon: "laptop"
+---
+
+By default, cac's macOS `ioreg` shim uses built-in fallback values for `IOPlatformSerialNumber`, `manufacturer`, and `model`.
+
+If you want the shim to return your current Mac's real values instead, use the helper script below.
+
+## What it writes
+
+The script writes three plain-text files under `~/.cac/`:
+
+```text
+~/.cac/host_model
+~/.cac/host_serial_number
+~/.cac/host_manufacturer
+```
+
+The `ioreg` shim now reads these files first, then falls back to built-in defaults if they do not exist.
+
+## Generate from your current Mac
+
+From the cac repo:
+
+```bash
+chmod +x scripts/export-macos-host-identity.sh
+./scripts/export-macos-host-identity.sh
+```
+
+Example output:
+
+```text
+model=Mac14,5
+serial=C02ABC123XYZ
+manufacturer=Apple Inc.
+wrote: /Users/you/.cac/host_model
+wrote: /Users/you/.cac/host_serial_number
+wrote: /Users/you/.cac/host_manufacturer
+```
+
+After writing the files, run any `cac` command once so the current wrapper/shims are refreshed if needed:
+
+```bash
+cac env ls
+```
+
+## Manual editing
+
+The generated files are plain text and can be edited manually at any time:
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
+```
+
+This is useful if you want:
+
+- Real values from your host Mac
+- Stable fake values you chose yourself
+- A different model/serial combination for testing
+
+## Overwrite behavior
+
+By default, the script does **not** overwrite existing files. This avoids clobbering manual edits.
+
+```bash
+./scripts/export-macos-host-identity.sh
+```
+
+If the files already exist, the script prints `skip:` for each one.
+
+Use `--force` to overwrite them with the current machine's values:
+
+```bash
+./scripts/export-macos-host-identity.sh --force
+```
+
+Use `--print-only` to inspect detected values without writing files:
+
+```bash
+./scripts/export-macos-host-identity.sh --print-only
+```
+
+## Important note
+
+Using your real serial number and model reduces identity isolation. If Claude Code reads `ioreg` through the shim, it will now see those real values instead of cac's generic fallback values.

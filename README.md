@@ -51,6 +51,26 @@ npm install -g claude-cac
 curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
 ```
 
+如果你是把**当前仓库同步到其他服务器**后安装，并且要确保使用的是**本地已修改的代码**，直接在仓库根目录执行：
+
+```bash
+bash install.sh
+```
+
+这个脚本现在会：
+- 优先使用当前仓库的本地代码构建并安装
+- 在 macOS 上自动扫描 `Model Identifier` / `Serial Number`，并允许你安装前手动修改确认
+- 把运行文件安装到 `~/.cac-dist/`
+- 创建 `~/bin/cac` 入口并自动初始化 `~/.cac/`
+
+macOS 身份文件生成后仍可手动修改：
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
+```
+
 ### 快速上手
 
 ```bash
@@ -232,6 +252,26 @@ npm install -g claude-cac
 
 # or manual
 curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
+```
+
+If you are syncing this repo to another machine and want to install **the code in your local modified repo**, run this from the repo root:
+
+```bash
+bash install.sh
+```
+
+The installer now:
+- prefers the current local repo over GitHub downloads
+- on macOS, scans `Model Identifier` and `Serial Number` and lets you review/edit them before install
+- installs runtime files into `~/.cac-dist/`
+- creates `~/bin/cac` and initializes `~/.cac/`
+
+The generated macOS host identity files remain editable after install:
+
+```bash
+vi ~/.cac/host_model
+vi ~/.cac/host_serial_number
+vi ~/.cac/host_manufacturer
 ```
 
 ### Quick start

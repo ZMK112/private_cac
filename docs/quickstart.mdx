@@ -17,9 +17,16 @@ icon: "rocket"
         curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
         ```
       </Tab>
+      <Tab title="Local repo">
+        ```bash
+        bash install.sh
+        ```
+      </Tab>
     </Tabs>
 
     No `setup` command needed — cac auto-initializes on first use.
+
+    If you synced this repo to another machine and need to install your **local modified code**, use the `Local repo` tab from the repo root. The installer will build the local tree first, then install that exact result.
 
     <Warning>
     If you have **Clash, Shadowrocket, Surge, sing-box** or other proxy/VPN tools running locally, **turn them off before using cac**. TUN-mode proxy compatibility is still experimental and may cause connection conflicts. Even if a conflict occurs, cac will **fail-closed** (refuse to connect) rather than leak your real IP — your privacy is always protected.
@@ -94,6 +101,9 @@ All of this is invisible to Claude Code — it sees a normal environment.
 ## Next steps
 
 <Columns cols={2}>
+  <Card title="Local repo install" icon="server" href="/guides/local-repo-install">
+    Install your synced/customized repo with one script.
+  </Card>
   <Card title="Proxy setup" icon="globe" href="/guides/proxy-setup">
     Protocol auto-detection, SOCKS5, share links.
   </Card>

@@ -1,9 +1,19 @@
 .DS_Store
 .npmrc
+.env
+.env.*
+!.env.example
 node_modules/
 *.swp
 *.swo
 *~
+*.local
+*.log
+*.pid
+*.tmp
+*.pem
+/.cac/
+/.cac-dist/
 
 # build artifacts (root-level copies from src/)
 /fingerprint-hook.js
@@ -11,5 +21,6 @@ node_modules/
 
 # docker
 docker/.env
+docker/.env.*
 data/
 CLAUDE.local.md

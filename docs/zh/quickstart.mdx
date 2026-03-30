@@ -17,9 +17,16 @@ icon: "rocket"
         curl -fsSL https://raw.githubusercontent.com/nmhjklnm/cac/master/install.sh | bash
         ```
       </Tab>
+      <Tab title="本地仓库">
+        ```bash
+        bash install.sh
+        ```
+      </Tab>
     </Tabs>
 
     无需 `setup` 命令——cac 在首次使用时自动初始化。
+
+    如果你是把当前仓库同步到其他机器上，并且要安装**本地修改后的代码**，请在仓库根目录使用“本地仓库”这一项。安装脚本会先构建本地代码，再安装这份结果。
 
     <Warning>
     如果你本地启动了 **Clash、Shadowrocket、Surge、sing-box** 等代理/VPN 工具，**建议在使用 cac 时先关闭**。TUN 模式的代理兼容性目前仍属于实验性功能，可能会产生冲突。即使发生冲突，cac 也会**自动停止连接**（fail-closed），而不会泄露你的真实 IP——隐私安全始终受到保障。
@@ -94,6 +101,9 @@ icon: "rocket"
 ## 下一步
 
 <Columns cols={2}>
+  <Card title="本地仓库安装" icon="server" href="/zh/guides/local-repo-install">
+    用一个脚本安装你同步/修改后的仓库代码。
+  </Card>
   <Card title="代理设置" icon="globe" href="/guides/proxy-setup">
     协议自动检测、SOCKS5、分享链接。
   </Card>
