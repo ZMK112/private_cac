@@ -190,25 +190,82 @@ show_identity_values() {
     printf '  manufacturer: %s\n' "${IDENTITY_MANUFACTURER:-—}"
 }
 
-edit_identity_files() {
-    write_identity_files
-    local editor="${VISUAL:-${EDITOR:-vi}}"
-    "$editor" "${CAC_HOME}/host_model" "${CAC_HOME}/host_serial_number" "${CAC_HOME}/host_manufacturer"
-    IDENTITY_MODEL="$(tr -d '\r\n' < "${CAC_HOME}/host_model")"
-    IDENTITY_SERIAL="$(tr -d '\r\n' < "${CAC_HOME}/host_serial_number")"
-    IDENTITY_MANUFACTURER="$(tr -d '\r\n' < "${CAC_HOME}/host_manufacturer")"
+prompt_identity_field() {
+    local field_key="$1"
+    local field_label="$2"
+    local detected_value="$3"
+    local existing_value="$4"
+    local current_value="$5"
+    local choice prompt default_choice entered_value next_value
+
+    while true; do
+        printf '\n%s:\n' "$field_label"
+        printf '  detected: %s\n' "${detected_value:-—}"
+        printf '  existing: %s\n' "${existing_value:-—}"
+        printf '  current:  %s\n' "${current_value:-—}"
+
+        if [[ -n "$existing_value" ]]; then
+            prompt='Choose [k]eep existing, [d]etected, or [e]nter custom'
+            default_choice="k"
+        else
+            prompt='Choose [d]etected or [e]nter custom'
+            default_choice="d"
+        fi
+
+        printf '%s [%s]: ' "$prompt" "$default_choice"
+        read -r choice
+        case "${choice:-$default_choice}" in
+            k|K)
+                if [[ -n "$existing_value" ]]; then
+                    next_value="$existing_value"
+                    break
+                fi
+                yellow "No existing value is available for ${field_label}."
+                ;;
+            d|D)
+                next_value="$detected_value"
+                break
+                ;;
+            e|E)
+                printf 'Enter %s: ' "$field_label"
+                read -r entered_value
+                next_value="$entered_value"
+                break
+                ;;
+            *)
+                yellow "Please choose a valid option."
+                ;;
+        esac
+    done
+
+    case "$field_key" in
+        model) IDENTITY_MODEL="$next_value" ;;
+        serial) IDENTITY_SERIAL="$next_value" ;;
+        manufacturer) IDENTITY_MANUFACTURER="$next_value" ;;
+    esac
 }
 
-confirm_identity_after_edit() {
+review_identity_fields() {
     while true; do
-        printf '\nCurrent macOS host identity values:\n'
+        prompt_identity_field "model" "Model" "$DETECTED_MODEL" "$EXISTING_MODEL" "${IDENTITY_MODEL:-$DETECTED_MODEL}"
+        prompt_identity_field "serial" "Serial Number" "$DETECTED_SERIAL" "$EXISTING_SERIAL" "${IDENTITY_SERIAL:-$DETECTED_SERIAL}"
+        prompt_identity_field "manufacturer" "Manufacturer" "$DETECTED_MANUFACTURER" "$EXISTING_MANUFACTURER" "${IDENTITY_MANUFACTURER:-$DETECTED_MANUFACTURER}"
+
+        printf '\nFinal macOS host identity values:\n'
         show_identity_values
-        printf '\nContinue with these values? [Y/n]: '
+        printf '\nWrite these values to ~/.cac? [Y/n]: '
         read -r answer
         case "${answer:-y}" in
-            y|Y|yes|YES|"") write_identity_files; return 0 ;;
-            n|N|no|NO) edit_identity_files ;;
-            *) yellow "Please answer y or n." ;;
+            y|Y|yes|YES|"")
+                write_identity_files
+                return 0
+                ;;
+            n|N|no|NO)
+                yellow "Restarting field-by-field review."
+                ;;
+            *)
+                yellow "Please answer y or n."
+                ;;
         esac
     done
 }
@@ -221,11 +278,11 @@ scan_macos_identity() {
         return 1
     }
 
-    IDENTITY_MODEL="$(printf '%s\n' "$hw" | sed -n 's/^ *Model Identifier: //p' | head -1)"
-    IDENTITY_SERIAL="$(printf '%s\n' "$hw" | sed -n 's/^ *Serial Number (system): //p' | head -1)"
-    IDENTITY_MANUFACTURER="Apple Inc."
+    DETECTED_MODEL="$(printf '%s\n' "$hw" | sed -n 's/^ *Model Identifier: //p' | head -1)"
+    DETECTED_SERIAL="$(printf '%s\n' "$hw" | sed -n 's/^ *Serial Number (system): //p' | head -1)"
+    DETECTED_MANUFACTURER="Apple Inc."
 
-    [[ -n "$IDENTITY_MODEL" && -n "$IDENTITY_SERIAL" ]] || {
+    [[ -n "$DETECTED_MODEL" && -n "$DETECTED_SERIAL" ]] || {
         yellow "Skipping macOS host identity scan: failed to parse model/serial"
         return 1
     }
@@ -243,6 +300,10 @@ setup_identity() {
         return 0
     fi
 
+    IDENTITY_MODEL="$DETECTED_MODEL"
+    IDENTITY_SERIAL="$DETECTED_SERIAL"
+    IDENTITY_MANUFACTURER="$DETECTED_MANUFACTURER"
+
     printf 'Detected macOS host identity:\n'
     show_identity_values
     printf '\n'
@@ -257,72 +318,23 @@ setup_identity() {
         return 0
     fi
 
-    if [[ -n "$EXISTING_MODEL$EXISTING_SERIAL$EXISTING_MANUFACTURER" ]] && [[ "$FORCE_IDENTITY" != "true" ]]; then
+    if [[ "$FORCE_IDENTITY" == "true" ]]; then
+        write_identity_files
+        green "✓ wrote detected macOS host identity files"
+        return 0
+    fi
+
+    if [[ -n "$EXISTING_MODEL$EXISTING_SERIAL$EXISTING_MANUFACTURER" ]]; then
         printf 'Existing ~/.cac host identity files found:\n'
         printf '  model: %s\n' "${EXISTING_MODEL:-—}"
         printf '  serial: %s\n' "${EXISTING_SERIAL:-—}"
         printf '  manufacturer: %s\n' "${EXISTING_MANUFACTURER:-—}"
-        printf '\nChoose an action:\n'
-        printf '  [k] keep existing values\n'
-        printf '  [r] replace with detected values\n'
-        printf '  [e] edit values manually before install\n'
-        printf '  [s] skip this step\n'
-
-        while true; do
-            printf 'Your choice [k/r/e/s]: '
-            read -r choice
-            case "${choice:-k}" in
-                k|K|"")
-                    yellow "Keeping existing macOS host identity files"
-                    return 0
-                    ;;
-                r|R)
-                    write_identity_files
-                    green "✓ wrote detected macOS host identity files"
-                    return 0
-                    ;;
-                e|E)
-                    edit_identity_files
-                    confirm_identity_after_edit
-                    green "✓ saved edited macOS host identity files"
-                    return 0
-                    ;;
-                s|S)
-                    yellow "Skipped macOS host identity setup"
-                    return 0
-                    ;;
-                *)
-                    yellow "Please choose k, r, e, or s."
-                    ;;
-            esac
-        done
+        printf '\n'
     fi
 
-    printf 'Write these detected values to ~/.cac? [Y/n/e]: '
-    while true; do
-        read -r choice
-        case "${choice:-y}" in
-            y|Y|yes|YES|"")
-                write_identity_files
-                green "✓ wrote detected macOS host identity files"
-                return 0
-                ;;
-            e|E)
-                edit_identity_files
-                confirm_identity_after_edit
-                green "✓ saved edited macOS host identity files"
-                return 0
-                ;;
-            n|N|no|NO)
-                yellow "Skipped macOS host identity setup"
-                return 0
-                ;;
-            *)
-                yellow "Please answer y, n, or e."
-                printf 'Write these detected values to ~/.cac? [Y/n/e]: '
-                ;;
-        esac
-    done
+    review_identity_fields
+    green "✓ saved macOS host identity files"
+    return 0
 }
 
 initialize_cac() {

@@ -336,16 +336,17 @@ _write_path_to_rc() {
     cat >> "$rc_file" << 'CACEOF'
 
 # >>> cac — Claude Code Cloak >>>
-PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':' | sed 's/:$//')
-export PATH="$HOME/.cac/bin:$PATH"
+PATH=$(printf '%s\n' "$PATH" | tr ':' '\n' | awk -v home="$HOME" '$0 != home"/bin" && $0 != home"/.cac/bin" && !seen[$0]++' | paste -sd ':' -)
+export PATH="$HOME/bin:$HOME/.cac/bin:$PATH"
 cac() {
     local _cac_bin
-    _cac_bin=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':') command -v cac 2>/dev/null)
+    _cac_bin=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':' | sed 's/:$//') type -P cac 2>/dev/null)
+    [[ -z "$_cac_bin" && -x "$HOME/bin/cac" ]] && _cac_bin="$HOME/bin/cac"
     [[ -z "$_cac_bin" ]] && { echo "[cac] error: cac binary not found in PATH" >&2; return 1; }
     command "$_cac_bin" "$@"
     local _rc=$?
-    PATH=$(echo "$PATH" | tr ':' '\n' | grep -v '\.cac/bin' | tr '\n' ':' | sed 's/:$//')
-    export PATH="$HOME/.cac/bin:$PATH"
+    PATH=$(printf '%s\n' "$PATH" | tr ':' '\n' | awk -v home="$HOME" '$0 != home"/bin" && $0 != home"/.cac/bin" && !seen[$0]++' | paste -sd ':' -)
+    export PATH="$HOME/bin:$HOME/.cac/bin:$PATH"
     return $_rc
 }
 # <<< cac — Claude Code Cloak <<<
