@@ -3,7 +3,7 @@ FROM node:${NODE_TAG}
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-ARG SINGBOX_VERSION=1.11.4
+ARG SINGBOX_VERSION=1.12.14
 ARG BUILD_PROXY
 
 # System packages + uv + sing-box

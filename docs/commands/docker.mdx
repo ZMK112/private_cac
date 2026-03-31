@@ -9,6 +9,8 @@ Run Claude Code in an isolated Docker container with sing-box TUN transparent pr
 
 See the [Docker mode guide](/guides/docker-mode) for detailed setup instructions.
 
+After `bash install.sh --local --yes`, Docker assets are linked into `~/.cac/docker`, so `cac docker ...` works from any directory. The directory where you run `cac docker start` is bind-mounted to `/workspace` inside the container.
+
 ## Commands
 
 | Command | Description |
@@ -31,6 +33,7 @@ Docker mode supports share links in addition to compact format:
 
 ```
 ip:port:user:pass          # compact (SOCKS5)
+host:port                  # compact (SOCKS5 hostname)
 ss://...                   # Shadowsocks
 vmess://...                # VMess
 vless://...                # VLESS
@@ -45,3 +48,9 @@ trojan://...               # Trojan
 | Local (bridge) | Laptop with Docker Desktop | Container uses the compose bridge network, proxy traffic is encrypted |
 
 Mode is auto-detected based on your Docker installation.
+
+## Notes
+
+- `cac docker setup` writes config into the active Docker resource directory: usually `~/.cac/docker/.env` after a local install, or `docker/.env` when running from the source tree.
+- `cac docker enter` opens a shell in the main container. `claude`, `cac`, and `docker` are already on `PATH`.
+- `cac docker check` validates the main container's TUN path. Child containers use host Docker networking unless you explicitly inject proxy envs.

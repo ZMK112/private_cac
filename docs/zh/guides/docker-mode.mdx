@@ -11,11 +11,14 @@ Docker 模式会隔离主 Claude Code 容器：使用独立网络命名空间、
 ## 快速开始
 
 ```bash
+cd /path/to/your/project
 cac docker setup     # 粘贴你的代理地址
 cac docker create    # 如果在仓库里运行，则构建本地镜像
 cac docker start     # 启动容器
 cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 ```
+
+执行 `cac docker start` 后，宿主当前目录会挂载到主容器内的 `/workspace`。
 
 ## 设置
 
@@ -26,15 +29,30 @@ cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 3. 自动检测 macvlan 模式的网络参数（网卡、子网、网关）
 4. 将配置写入 `docker/.env`
 
+如果你通过 `bash install.sh --local --yes` 做的是本地安装，这通常指的是 `~/.cac/docker/.env`；如果你直接在源码树中运行，则是 `<repo>/docker/.env`。
+
 ### 代理格式
 
 ```
 ip:port:user:pass          # 紧凑格式 SOCKS5
+host:port                  # 使用主机名的紧凑格式 SOCKS5
 ss://...                   # Shadowsocks 分享链接
 vmess://...                # VMess 分享链接
 vless://...                # VLESS 分享链接
 trojan://...               # Trojan 分享链接
 ```
+
+### Docker Desktop 上的本地 SOCKS5
+
+如果你的代理程序直接跑在 macOS 宿主机上，主容器应当通过 `host.docker.internal` 访问它：
+
+```env
+PROXY_URI=host.docker.internal:17891
+CAC_CHILD_CONTAINER_PROXY_URL=socks5h://host.docker.internal:17891
+CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
+```
+
+`BUILD_PROXY` 是可选的，只影响镜像构建阶段的下载；运行时的 TUN 流量由 `PROXY_URI` 控制，不由 `BUILD_PROXY` 控制。
 
 ## 容器内部发生了什么
 
@@ -57,9 +75,9 @@ trojan://...               # Trojan 分享链接
 
 ## 持久化存储
 
-`/root` 和 `/home` 通过 bind mount 挂载到主机的 `docker/data/`。你的 Claude Code 会话、设置和工作文件在容器重启后依然保留。
+`/root` 和 `/home` 会通过 bind mount 挂载到 Docker 资源目录下的 `data/`。你的 Claude Code 会话、设置和工作文件在容器重启后依然保留。
 
-`/workspace` 也会从宿主的 `docker/data/workspace` 挂载进容器。如果 Claude Code 需要启动带 bind mount 的子容器，项目应放在这里。
+`/workspace` 会从你执行 `cac docker start` 时所在的宿主目录挂载进容器。如果 Claude Code 需要启动带 bind mount 的子容器，应当在你希望暴露的项目根目录下启动 Docker 模式。
 
 ## `cac` 内部启动子容器
 
@@ -76,6 +94,8 @@ trojan://...               # Trojan 分享链接
 - 子容器运行时流量默认也是宿主 Docker Engine 的普通网络，不会自动跟随主容器代理
 - 如果你希望 registry 流量走代理，需要单独给 Docker Engine 或 Docker Desktop 配 daemon 代理
 - 如果你希望子容器里的应用流量走代理，需要在 `docker/.env` 里设置 `CAC_CHILD_CONTAINER_PROXY_URL`，或者自己传 `-e ALL_PROXY=... -e HTTPS_PROXY=...`
+- 如果主代理中断，主容器预期是 fail-closed：`cac docker check` 的 DNS/TCP/HTTP 检查会失败，而不是静默回退到宿主默认出口
+- 在本地 SOCKS5 测试里，更关键的 fail-closed 信号是代理停掉后 `HTTP` 和 `EXIT` 失败，且不会暴露新的直连出口 IP
 
 重要说明：
 

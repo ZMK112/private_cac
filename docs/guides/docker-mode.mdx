@@ -11,11 +11,14 @@ If you enable child-container workflows from inside `cac`, that convenience come
 ## Quick start
 
 ```bash
+cd /path/to/your/project
 cac docker setup     # paste your proxy address
 cac docker create    # build the local image if running from the repo
 cac docker start     # start container
 cac docker enter     # shell in — claude + cac ready
 ```
+
+After `cac docker start`, the current host directory is mounted to `/workspace` inside the main container.
 
 ## Setup
 
@@ -26,15 +29,30 @@ cac docker enter     # shell in — claude + cac ready
 3. Auto-detects network parameters (interface, subnet, gateway) for macvlan mode
 4. Writes configuration to `docker/.env`
 
+After a local install via `bash install.sh --local --yes`, that usually means `~/.cac/docker/.env`. When you run directly from the source tree, it means `<repo>/docker/.env`.
+
 ### Proxy formats
 
 ```
 ip:port:user:pass          # compact SOCKS5
+host:port                  # compact SOCKS5 with hostname
 ss://...                   # Shadowsocks share link
 vmess://...                # VMess share link
 vless://...                # VLESS share link
 trojan://...               # Trojan share link
 ```
+
+### Local SOCKS5 on Docker Desktop
+
+If your proxy runs on the macOS host itself, point the main container at `host.docker.internal`:
+
+```env
+PROXY_URI=host.docker.internal:17891
+CAC_CHILD_CONTAINER_PROXY_URL=socks5h://host.docker.internal:17891
+CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
+```
+
+`BUILD_PROXY` is optional and only affects image build-time downloads. Runtime TUN traffic is controlled by `PROXY_URI`, not `BUILD_PROXY`.
 
 ## What happens inside the container
 
@@ -57,9 +75,9 @@ On first boot, the entrypoint automatically:
 
 ## Persistent storage
 
-`/root` and `/home` are bind-mounted to `docker/data/` on the host. Your Claude Code sessions, settings, and work files survive container restarts.
+`/root` and `/home` are bind-mounted to the Docker resource directory's `data/` folder on the host. Your Claude Code sessions, settings, and work files survive container restarts.
 
-`/workspace` is also bind-mounted from `docker/data/workspace` on the host. Put projects there if Claude Code needs to start child containers with bind mounts.
+`/workspace` is bind-mounted from the directory where you ran `cac docker start`. If Claude Code needs to start child containers with bind mounts, start Docker mode from the project root you want exposed inside `/workspace`.
 
 ## Child containers from inside `cac`
 
@@ -76,6 +94,8 @@ Important network boundary details:
 - Running child containers also use the host Docker Engine's normal networking unless you explicitly set proxy environment variables inside those child containers
 - If you want registry traffic to use a proxy, configure the Docker Engine or Docker Desktop daemon proxy separately
 - If you want a child container's application traffic to use a proxy, set `CAC_CHILD_CONTAINER_PROXY_URL` in `docker/.env` or pass `-e ALL_PROXY=... -e HTTPS_PROXY=...` yourself
+- If the main proxy goes down, the main container is expected to fail closed: `cac docker check` will fail on DNS/TCP/HTTP instead of silently falling back to the host's default route
+- In local SOCKS5 tests, the strongest fail-closed signal is that `HTTP` and `EXIT` fail after the proxy stops; no direct exit IP is exposed
 
 Important:
 

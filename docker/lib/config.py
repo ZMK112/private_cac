@@ -7,6 +7,7 @@ Read PROXY_URI from environment, generate sing-box JSON to stdout.
 from __future__ import annotations
 
 import os
+import socket
 import sys
 
 from .protocols import parse
@@ -20,7 +21,12 @@ def main() -> None:
         sys.exit(1)
 
     proxy = parse(uri)
-    dns = os.environ.get("DNS_SERVER", "8.8.8.8")
+    if proxy.server and not proxy.server.replace(".", "").isdigit():
+        try:
+            proxy.server = socket.gethostbyname(proxy.server)
+        except OSError:
+            pass
+    dns = os.environ.get("DNS_SERVER", "https://1.1.1.1/dns-query")
     tun_addr = os.environ.get("TUN_ADDRESS", "172.19.0.1/30")
     tun_mtu = int(os.environ.get("TUN_MTU", "9000"))
     print(render_json(proxy, dns_server=dns, tun_address=tun_addr, tun_mtu=tun_mtu))

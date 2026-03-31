@@ -150,6 +150,21 @@ link_entrypoint() {
     ln -sfn "${DIST_DIR}/cac" "${BIN_DIR}/cac"
 }
 
+install_docker_resources() {
+    mkdir -p "$CAC_HOME"
+
+    if [[ "$INSTALL_MODE" == "local" ]] && [[ -d "${SCRIPT_DIR}/docker" ]] && [[ -f "${SCRIPT_DIR}/docker/docker-compose.yml" ]]; then
+        ln -sfn "${SCRIPT_DIR}/docker" "${CAC_HOME}/docker"
+        green "✓ linked Docker resources → ${CAC_HOME}/docker"
+        return 0
+    fi
+
+    if [[ ! -e "${CAC_HOME}/docker" ]]; then
+        yellow "Docker resources were not linked automatically in remote install mode."
+        yellow "To use 'cac docker', clone the repo locally and link its docker/ directory to ${CAC_HOME}/docker."
+    fi
+}
+
 detect_rc_file() {
     if [[ -f "${HOME}/.zshrc" ]]; then
         printf '%s\n' "${HOME}/.zshrc"
@@ -352,6 +367,9 @@ print_completion() {
     printf '安装模式: %s\n' "$INSTALL_MODE"
     printf '入口: %s\n' "${BIN_DIR}/cac"
     printf '运行时文件: %s\n' "$DIST_DIR"
+    if [[ -e "${CAC_HOME}/docker" ]]; then
+        printf 'Docker 资源: %s\n' "${CAC_HOME}/docker"
+    fi
     echo
 
     if [[ -n "$rc_file" ]]; then
@@ -384,6 +402,7 @@ main() {
     setup_identity
     install_assets
     link_entrypoint
+    install_docker_resources
     initialize_cac
     print_completion
 }

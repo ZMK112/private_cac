@@ -17,11 +17,8 @@ if [[ "$DISABLE_IPV6" == "1" ]]; then
 fi
 
 _SINGBOX_PID=""
-_DOCKER_ROUTE_DEV=""
-_DOCKER_ROUTE_VIA=""
-_DOCKER_ROUTE_SRC=""
-_DOCKER_ROUTE_DST=""
-_DOCKER_ROUTE_HOST=""
+_DOCKER_ROUTE_SPEC=""
+_PROXY_ROUTE_SPEC=""
 
 docker_host_target() {
   local docker_host="${DOCKER_HOST:-}" target=""
@@ -46,48 +43,66 @@ docker_host_target() {
   printf '%s\n' "$target"
 }
 
-resolve_docker_host_ip() {
-  local target=""
-  target="$(docker_host_target || true)"
-  [[ -z "$target" ]] && return 1
+proxy_host_target() {
+  local proxy="${PROXY_URI:-}" target=""
+  [[ -z "$proxy" ]] && return 1
 
-  if [[ "$target" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-    printf '%s\n' "$target"
+  if [[ "$proxy" != *"://"* ]]; then
+    printf '%s\n' "${proxy%%:*}"
     return 0
   fi
 
-  getent ahostsv4 "$target" 2>/dev/null | awk 'NR==1{print $1}'
+  python3 - "$proxy" <<'PY'
+from urllib.parse import urlparse
+import sys
+
+raw = sys.argv[1]
+scheme = raw.split("://", 1)[0].lower()
+if scheme in {"http", "https", "socks5", "vless", "trojan"}:
+    parsed = urlparse(raw)
+    print(parsed.hostname or "")
+PY
 }
 
-capture_docker_host_route() {
-  local docker_ip route_line docker_target
-  docker_target="$(docker_host_target || true)"
-  docker_ip="$(resolve_docker_host_ip || true)"
-  [[ -z "$docker_ip" || -z "$docker_target" ]] && return 0
+capture_named_route() {
+  local target="$1" resolved="" route_line="" host_alias=""
+  [[ -z "$target" ]] && return 0
 
-  route_line="$(ip -4 route get "$docker_ip" 2>/dev/null | head -n1 || true)"
+  if [[ "$target" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    resolved="$target"
+  else
+    resolved="$(getent ahostsv4 "$target" 2>/dev/null | awk 'NR==1{print $1}' || true)"
+    host_alias="$target"
+  fi
+  [[ -z "$resolved" ]] && return 0
+
+  route_line="$(ip -4 route get "$resolved" 2>/dev/null | head -n1 || true)"
   [[ -z "$route_line" ]] && return 0
 
-  _DOCKER_ROUTE_DST="$docker_ip/32"
-  _DOCKER_ROUTE_HOST=""
-  if [[ "$docker_target" != "$docker_ip" ]]; then
-    _DOCKER_ROUTE_HOST="$docker_target"
-  fi
-  _DOCKER_ROUTE_DEV="$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$route_line")"
-  _DOCKER_ROUTE_VIA="$(awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}' <<<"$route_line")"
-  _DOCKER_ROUTE_SRC="$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$route_line")"
+  local dev via src
+  dev="$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$route_line")"
+  via="$(awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}' <<<"$route_line")"
+  src="$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$route_line")"
+  [[ -z "$dev" ]] && return 0
+
+  printf '%s|%s|%s|%s|%s\n' "${resolved}/32" "$dev" "$via" "$src" "$host_alias"
 }
 
-pin_docker_host_route() {
-  [[ -z "$_DOCKER_ROUTE_DST" || -z "$_DOCKER_ROUTE_DEV" ]] && return 0
+pin_named_route() {
+  local spec="$1"
+  [[ -z "$spec" ]] && return 0
 
-  local cmd=(ip route replace "$_DOCKER_ROUTE_DST" dev "$_DOCKER_ROUTE_DEV")
-  [[ -n "$_DOCKER_ROUTE_VIA" ]] && cmd+=(via "$_DOCKER_ROUTE_VIA")
-  [[ -n "$_DOCKER_ROUTE_SRC" ]] && cmd+=(src "$_DOCKER_ROUTE_SRC")
+  local dst dev via src host
+  IFS='|' read -r dst dev via src host <<<"$spec"
+  [[ -z "$dst" || -z "$dev" ]] && return 0
+
+  local cmd=(ip route replace "$dst" dev "$dev")
+  [[ -n "$via" ]] && cmd+=(via "$via")
+  [[ -n "$src" ]] && cmd+=(src "$src")
   "${cmd[@]}" 2>/dev/null || true
-  if [[ -n "$_DOCKER_ROUTE_HOST" ]]; then
-    grep -qE "(^|[[:space:]])${_DOCKER_ROUTE_HOST}([[:space:]]|$)" /etc/hosts 2>/dev/null || \
-      printf '%s %s\n' "${_DOCKER_ROUTE_DST%/32}" "$_DOCKER_ROUTE_HOST" >> /etc/hosts
+  if [[ -n "$host" ]]; then
+    grep -qE "(^|[[:space:]])${host}([[:space:]]|$)" /etc/hosts 2>/dev/null || \
+      printf '%s %s\n' "${dst%/32}" "$host" >> /etc/hosts
   fi
 }
 
@@ -104,7 +119,8 @@ wait_for_docker_host() {
   exit 1
 }
 
-capture_docker_host_route
+_DOCKER_ROUTE_SPEC="$(capture_named_route "$(docker_host_target || true)")"
+_PROXY_ROUTE_SPEC="$(capture_named_route "$(proxy_host_target || true)")"
 
 if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   mkdir -p /etc/sing-box
@@ -126,7 +142,8 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   _last="${_base##*.}"
   TUN_DNS="${_prefix}.$(( _last + 1 ))"
   printf 'nameserver %s\noptions ndots:0\n' "$TUN_DNS" > /etc/resolv.conf
-  pin_docker_host_route
+  pin_named_route "$_DOCKER_ROUTE_SPEC"
+  pin_named_route "$_PROXY_ROUTE_SPEC"
 
   # ── Auto-detect timezone and locale from exit IP ──────────────
   _GEO_TZ="" _GEO_LANG=""

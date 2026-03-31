@@ -9,6 +9,8 @@ icon: "docker"
 
 详细设置说明请参见 [Docker 模式指南](/guides/docker-mode)。
 
+执行 `bash install.sh --local --yes` 后，Docker 资源会自动链接到 `~/.cac/docker`，因此你可以在任意目录直接运行 `cac docker ...`。执行 `cac docker start` 时所在的当前目录会挂载到容器内的 `/workspace`。
+
 ## 命令
 
 | 命令 | 说明 |
@@ -31,6 +33,7 @@ Docker 模式除了支持紧凑格式外，还支持分享链接：
 
 ```
 ip:port:user:pass          # 紧凑格式（SOCKS5）
+host:port                  # 使用主机名的紧凑格式（SOCKS5）
 ss://...                   # Shadowsocks
 vmess://...                # VMess
 vless://...                # VLESS
@@ -45,3 +48,9 @@ trojan://...               # Trojan
 | 本地（bridge） | 使用 Docker Desktop 的笔记本电脑 | 容器使用 Docker 桥接网络，代理流量加密传输 |
 
 模式根据你的 Docker 安装方式自动检测。
+
+## 说明
+
+- `cac docker setup` 会把配置写入当前使用的 Docker 资源目录：本地安装后通常是 `~/.cac/docker/.env`，在源码树中运行时则是 `docker/.env`。
+- `cac docker enter` 会进入主容器的 shell，里面已经准备好 `claude`、`cac` 和 `docker`。
+- `cac docker check` 只校验主容器的 TUN 代理路径。子容器默认走宿主 Docker 网络，除非你显式注入代理环境变量。

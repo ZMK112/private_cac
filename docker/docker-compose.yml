@@ -26,7 +26,7 @@ services:
     environment:
       PROXY_URI: ${PROXY_URI:?Set PROXY_URI in .env}
       SINGBOX_ENABLE: ${SINGBOX_ENABLE:-1}
-      DNS_SERVER: ${DNS_SERVER:-8.8.8.8}
+      DNS_SERVER: ${DNS_SERVER:-https://1.1.1.1/dns-query}
       TUN_ADDRESS: ${TUN_ADDRESS:-172.19.0.1/30}
       TUN_MTU: ${TUN_MTU:-9000}
       DISABLE_IPV6: ${DISABLE_IPV6:-1}

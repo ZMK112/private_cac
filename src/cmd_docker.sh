@@ -18,7 +18,10 @@ _docker_dir() {
     "$PWD/docker" \
     "$HOME/.cac/docker"
   do
-    [[ -d "$d" && -f "$d/docker-compose.yml" ]] && { echo "$d"; return 0; }
+    if [[ -d "$d" && -f "$d/docker-compose.yml" ]]; then
+      (cd "$d" && pwd -P)
+      return 0
+    fi
   done
 
   echo ""

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 from .protocols import ProxyConfig
 
@@ -30,6 +31,28 @@ def render_json(proxy: ProxyConfig, **kwargs: Any) -> str:
 
 
 def _dns_section(server: str) -> dict:
+    if server.startswith("https://"):
+        parsed = urlparse(server)
+        host = parsed.hostname or ""
+        dns_server: dict[str, Any] = {
+            "type": "https",
+            "tag": "remote-dns",
+            "server": host,
+            "server_port": parsed.port or 443,
+            "path": parsed.path or "/dns-query",
+            "detour": "proxy",
+        }
+        if host:
+            dns_server["tls"] = {
+                "enabled": True,
+                "server_name": host if not host.replace(".", "").isdigit() else "cloudflare-dns.com",
+            }
+        return {
+            "servers": [dns_server],
+            "final": "remote-dns",
+            "strategy": "ipv4_only",
+        }
+
     return {
         "servers": [{"tag": "remote-dns", "address": server, "detour": "proxy"}],
         "final": "remote-dns",
