@@ -3,7 +3,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUT_DIR="${ROOT_DIR}/release"
+OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
 PKG_NAME="cac-portable-latest"
 TMP_DIR="$(mktemp -d)"
 PKG_ROOT="${TMP_DIR}/${PKG_NAME}"
@@ -27,8 +27,8 @@ rsync -a \
     --exclude '.git/' \
     --exclude '.cac/' \
     --exclude '.cac-dist/' \
-    --exclude 'release/*.zip' \
-    --exclude 'release/*.sha256' \
+    --exclude 'dist/' \
+    --exclude 'release/' \
     --exclude '.DS_Store' \
     "${ROOT_DIR}/" "${PKG_ROOT}/"
 
