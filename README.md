@@ -63,6 +63,17 @@ bash install.sh
 - 把运行文件安装到 `~/.cac-dist/`
 - 创建 `~/bin/cac` 入口并自动初始化 `~/.cac/`
 
+如果你希望别人**直接从 GitHub 下载压缩包、解压后就能安装**，仓库里还会提供：
+
+- `release/cac-portable-latest.zip`
+- `release/cac-portable-latest.sha256`
+
+下载后进入解压目录，直接执行：
+
+```bash
+bash install.sh
+```
+
 macOS 身份文件生成后仍可手动修改：
 
 ```bash
