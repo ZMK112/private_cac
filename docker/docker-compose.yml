@@ -1,7 +1,23 @@
 # Base compose — use with docker-compose.macvlan.yml or docker-compose.local.yml
 services:
+  docker-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.socket-proxy
+    container_name: ${CAC_DOCKER_PROXY_NAME:-engine-gateway}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      docker_control:
+        ipv4_address: ${CAC_DOCKER_PROXY_IP:-172.31.255.2}
+    restart: unless-stopped
+
   cac:
-    image: ghcr.io/nmhjklnm/cac-docker:latest
+    image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:latest}
+    container_name: ${CAC_CONTAINER_NAME:-studio-main}
+    hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-studio-main}
+    depends_on:
+      - docker-proxy
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -15,10 +31,22 @@ services:
       TUN_MTU: ${TUN_MTU:-9000}
       DISABLE_IPV6: ${DISABLE_IPV6:-1}
       HEALTHCHECK: ${HEALTHCHECK:-1}
+      DOCKER_HOST: ${DOCKER_HOST:-tcp://${CAC_DOCKER_PROXY_IP:-172.31.255.2}:2375}
+      CAC_PARENT_CONTAINER_NAME: ${CAC_CONTAINER_NAME:-studio-main}
+      CAC_SHARED_WORKSPACE: /workspace
+      CAC_SHARED_WORKSPACE_HOST: ${CAC_WORKSPACE_HOST:?Set CAC_WORKSPACE_HOST in .env}
+      CAC_CHILD_CONTAINER_NETWORK_MODE: ${CAC_CHILD_CONTAINER_NETWORK_MODE:-bridge}
+      CAC_CHILD_CONTAINER_PROXY_URL: ${CAC_CHILD_CONTAINER_PROXY_URL:-}
+      CAC_CHILD_CONTAINER_NO_PROXY: ${CAC_CHILD_CONTAINER_NO_PROXY:-localhost,127.0.0.1,::1}
+      CAC_REAL_DOCKER_BIN: /usr/local/bin/docker-real
     volumes:
       - ${CAC_DATA:-./data}/root:/root
       - ${CAC_DATA:-./data}/home:/home
-    working_dir: /home
+      - ${CAC_WORKSPACE_HOST:?Set CAC_WORKSPACE_HOST in .env}:/workspace
+    networks:
+      docker_control:
+        ipv4_address: ${CAC_DOCKER_CLIENT_IP:-172.31.255.3}
+    working_dir: /workspace
     stdin_open: true
     tty: true
     restart: unless-stopped
@@ -28,3 +56,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 15s
+
+networks:
+  docker_control:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: ${CAC_DOCKER_CONTROL_SUBNET:-172.31.255.0/24}

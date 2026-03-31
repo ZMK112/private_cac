@@ -1,15 +1,18 @@
 ---
 title: "Docker mode"
-description: "Run Claude Code in a fully isolated container with TUN networking."
+description: "Run Claude Code in an isolated container with TUN networking and optional host-Docker access."
 icon: "docker"
 ---
 
-Docker mode provides the strongest isolation: a separate network namespace with sing-box TUN transparent proxy, plus cac identity protection and Claude Code pre-installed.
+Docker mode isolates the main Claude Code container with a separate network namespace, sing-box TUN transparent proxy, cac identity protection, and Claude Code pre-installed.
+
+If you enable child-container workflows from inside `cac`, that convenience comes from talking to the host Docker Engine through a sidecar proxy. The main `cac` container stays isolated; child containers do not automatically inherit the main container's leak-safe network path.
 
 ## Quick start
 
 ```bash
 cac docker setup     # paste your proxy address
+cac docker create    # build the local image if running from the repo
 cac docker start     # start container
 cac docker enter     # shell in — claude + cac ready
 ```
@@ -55,6 +58,30 @@ On first boot, the entrypoint automatically:
 ## Persistent storage
 
 `/root` and `/home` are bind-mounted to `docker/data/` on the host. Your Claude Code sessions, settings, and work files survive container restarts.
+
+`/workspace` is also bind-mounted from `docker/data/workspace` on the host. Put projects there if Claude Code needs to start child containers with bind mounts.
+
+## Child containers from inside `cac`
+
+Inside the container, `docker` is a wrapper around the real Docker CLI:
+
+- It talks to the host Docker Engine through a dedicated `docker-proxy` sidecar
+- It rewrites bind mounts from `/workspace/...` to the matching host path
+- It defaults child containers to `bridge` unless you pass `--network` yourself
+- It adds labels so Claude-started containers are easy to identify and clean up
+
+Important network boundary details:
+
+- `docker pull` and `docker build` run through the host Docker Engine, not through the main `cac` container's TUN path
+- Running child containers also use the host Docker Engine's normal networking unless you explicitly set proxy environment variables inside those child containers
+- If you want registry traffic to use a proxy, configure the Docker Engine or Docker Desktop daemon proxy separately
+- If you want a child container's application traffic to use a proxy, set `CAC_CHILD_CONTAINER_PROXY_URL` in `docker/.env` or pass `-e ALL_PROXY=... -e HTTPS_PROXY=...` yourself
+
+Important:
+
+- The main `cac` container still gets the strongest protection in this mode
+- Docker access inside `cac` is no longer a strong isolation boundary, because Claude Code can ask the host Docker Engine to create other containers
+- Do not assume child containers are fail-closed when your project proxy is down; configure the Docker daemon proxy and child-container proxy envs explicitly if you need that behavior
 
 ## Port forwarding
 

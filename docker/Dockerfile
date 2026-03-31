@@ -16,7 +16,7 @@ RUN set -eux; \
     export ALL_PROXY="${BUILD_PROXY:-}" all_proxy="${BUILD_PROXY:-}"; \
     apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git iproute2 \
-      locales nftables procps python3 python3-venv \
+      locales nftables procps python3 python3-venv docker.io \
       openssl uuid-runtime tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/^# *\(en_US\|en_GB\|ja_JP\|ko_KR\|zh_CN\|zh_TW\|de_DE\|fr_FR\)\.UTF-8/\1.UTF-8/' /etc/locale.gen \
@@ -59,7 +59,9 @@ ENV PYTHONPATH="/opt/ccimage"
 
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/cac-check /usr/local/bin/cac-check
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check
+COPY docker/docker-wrapper.sh /usr/local/bin/docker
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker \
+    && cp /usr/bin/docker /usr/local/bin/docker-real
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["sleep", "infinity"]

@@ -30,6 +30,7 @@ _dk_service="cac"
 _dk_shim_if="cac-docker-shim"
 _dk_port_dir="/tmp/cac-docker-ports"
 _dk_image="ghcr.io/nmhjklnm/cac-docker:latest"
+_dk_build_file="docker-compose.build.yml"
 
 _dk_init() {
   local docker_dir
@@ -41,6 +42,16 @@ _dk_init() {
   fi
   _dk_env_file="${docker_dir}/.env"
   _dk_compose_base=(-f "${docker_dir}/docker-compose.yml")
+}
+
+_dk_can_build_local() {
+  local docker_dir repo_root
+  docker_dir=$(_docker_dir)
+  repo_root="${docker_dir%/docker}"
+  [[ -f "${docker_dir}/${_dk_build_file}" ]] &&
+  [[ -f "${docker_dir}/Dockerfile" ]] &&
+  [[ -d "${repo_root}/src" ]] &&
+  [[ -f "${repo_root}/build.sh" ]]
 }
 
 _dk_load_env() {
@@ -55,10 +66,18 @@ _dk_read_env() {
 
 _dk_write_env() {
   local key="$1" value="$2"
-  if [[ -f "$_dk_env_file" ]] && grep -q "^${key}=" "$_dk_env_file" 2>/dev/null; then
-    sed -i "s|^${key}=.*|${key}=${value}|" "$_dk_env_file"
+  local tmp
+  tmp=$(mktemp)
+  if [[ -f "$_dk_env_file" ]]; then
+    awk -v k="$key" -v v="$value" '
+      BEGIN { done = 0 }
+      $0 ~ ("^" k "=") { print k "=" v; done = 1; next }
+      { print }
+      END { if (!done) print k "=" v }
+    ' "$_dk_env_file" > "$tmp" && mv "$tmp" "$_dk_env_file"
   else
-    echo "${key}=${value}" >> "$_dk_env_file"
+    printf '%s=%s\n' "$key" "$value" > "$tmp"
+    mv "$tmp" "$_dk_env_file"
   fi
 }
 
@@ -82,11 +101,16 @@ _dk_compose_files() {
   local docker_dir mode
   docker_dir=$(_docker_dir)
   mode=$(_dk_get_mode)
-  if [[ "$mode" == "local" ]]; then
-    echo "${_dk_compose_base[@]}" -f "${docker_dir}/docker-compose.local.yml"
-  else
-    echo "${_dk_compose_base[@]}" -f "${docker_dir}/docker-compose.macvlan.yml"
+  printf '%s ' "${_dk_compose_base[@]}"
+  if _dk_can_build_local; then
+    printf '%s ' "-f" "${docker_dir}/${_dk_build_file}"
   fi
+  if [[ "$mode" == "local" ]]; then
+    printf '%s ' "-f" "${docker_dir}/docker-compose.local.yml"
+  else
+    printf '%s ' "-f" "${docker_dir}/docker-compose.macvlan.yml"
+  fi
+  echo ""
 }
 
 _dk_compose() {
@@ -279,10 +303,10 @@ _dk_cmd_setup() {
   echo ""
   if [[ "$mode" == "local" ]]; then
     _info "Detected: \033[1mlocal laptop\033[0m (Docker Desktop)"
-    _info "Mode: bridge network — container isolated"
+    _info "Mode: bridge network — main container isolated, child containers use host Docker"
   else
     _info "Detected: \033[1mremote server\033[0m (native Linux Docker)"
-    _info "Mode: macvlan — container isolated from host"
+    _info "Mode: macvlan — main container isolated from host, child containers use host Docker"
     echo ""
     _info "Detecting network..."
     _dk_detect_network
@@ -292,10 +316,20 @@ _dk_cmd_setup() {
   # Create persistent data directory
   local docker_dir
   docker_dir=$(_docker_dir)
-  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home"
+  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home" "${docker_dir}/data/workspace"
+  _dk_write_env CAC_WORKSPACE_HOST "${docker_dir}/data/workspace"
+  _dk_write_env CAC_CONTAINER_NAME "studio-main"
+  _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "studio-main"
+  _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
+  _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
+  _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
+  _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
+  _dk_write_env DOCKER_HOST "tcp://172.31.255.2:2375"
 
   _ok "Config saved"
   echo ""
+  _info "Shared workspace: \033[1m${docker_dir}/data/workspace\033[0m → /workspace"
+  _info "Docker API: \033[1mtcp://172.31.255.2:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
 
@@ -303,8 +337,15 @@ _dk_cmd_create() {
   _dk_init || return 1
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   echo ""
-  _info "Pulling image..."
-  docker pull "$_dk_image"
+  if _dk_can_build_local; then
+    _info "Building local images..."
+    _dk_compose build
+  else
+    _info "Building docker-proxy image..."
+    _dk_compose build docker-proxy
+    _info "Pulling image..."
+    docker pull "$_dk_image"
+  fi
   echo ""
   _ok "Image ready"
   _info "Start with: \033[1mcac docker start\033[0m"
@@ -315,7 +356,7 @@ _dk_cmd_start() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
   _info "Starting container..."
-  _dk_compose up -d
+  _dk_compose up -d --build
   _dk_shim_up
   sleep 2
 
@@ -326,6 +367,7 @@ _dk_cmd_start() {
     _info "Enter with:   \033[1mcac docker enter\033[0m"
     _info "Check with:   \033[1mcac docker check\033[0m"
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
+    _info "Workspace:    \033[1m/workspace\033[0m (host: ${CAC_WORKSPACE_HOST:-unset})"
   else
     _err "Container state: $state"
     _info "Logs: cac docker logs"
@@ -437,6 +479,15 @@ _dk_cmd_status() {
     local cip; cip=$(_dk_read_env MACVLAN_IP)
     [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
   fi
+  local workspace_host child_net docker_host child_proxy
+  workspace_host=$(_dk_read_env CAC_WORKSPACE_HOST)
+  child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
+  docker_host=$(_dk_read_env DOCKER_HOST)
+  child_proxy=$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)
+  [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
+  [[ -n "$docker_host" ]] && printf "  Docker API: %s\n" "$docker_host"
+  [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
+  [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $child_proxy"
 
   local state
   state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
@@ -490,7 +541,7 @@ cmd_docker() {
       echo ""
       printf "\033[1mLifecycle:\033[0m\n"
       echo "  setup               Configure proxy (interactive)"
-      echo "  create              Pull the Docker image"
+      echo "  create              Build/pull the Docker image"
       echo "  start               Start the container"
       echo "  stop                Stop the container"
       echo "  restart             Restart the container"

@@ -1,0 +1,7 @@
+services:
+  cac:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      args:
+        BUILD_PROXY: ${BUILD_PROXY:-}

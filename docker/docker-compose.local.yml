@@ -1,4 +1,2 @@
-# Local laptop: bridge network, container fully isolated.
-services:
-  cac:
-    network_mode: bridge
+# Local laptop: base compose already uses a bridge control network.
+services: {}

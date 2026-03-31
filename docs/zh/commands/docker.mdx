@@ -1,11 +1,11 @@
 ---
 title: "cac docker"
 sidebarTitle: "docker"
-description: "带网络隔离的容器化 Claude Code。"
+description: "带网络隔离和可选宿主 Docker 访问的容器化 Claude Code。"
 icon: "docker"
 ---
 
-在完全隔离的 Docker 容器中运行 Claude Code，支持 sing-box TUN 透明代理和 cac 身份保护。
+在隔离的 Docker 容器中运行 Claude Code，支持 sing-box TUN 透明代理、cac 身份保护，以及供子容器工作流使用的宿主 Docker 代理通道。
 
 详细设置说明请参见 [Docker 模式指南](/guides/docker-mode)。
 
@@ -14,6 +14,7 @@ icon: "docker"
 | 命令 | 说明 |
 |:---|:---|
 | `cac docker setup` | 配置代理和网络（交互式） |
+| `cac docker create` | 构建或拉取镜像 |
 | `cac docker start` | 启动容器 |
 | `cac docker stop` | 停止容器 |
 | `cac docker restart` | 重启容器 |

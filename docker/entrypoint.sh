@@ -9,12 +9,26 @@ CAC_PROFILE="${CAC_PROFILE:-default}"
 unset ALL_PROXY HTTP_PROXY HTTPS_PROXY all_proxy http_proxy https_proxy \
       NO_PROXY no_proxy 2>/dev/null || true
 
+mkdir -p /workspace
+
 if [[ "$DISABLE_IPV6" == "1" ]]; then
   sysctl -w net.ipv6.conf.all.disable_ipv6=1 2>/dev/null || true
   sysctl -w net.ipv6.conf.default.disable_ipv6=1 2>/dev/null || true
 fi
 
 _SINGBOX_PID=""
+wait_for_docker_host() {
+  local docker_host="${DOCKER_HOST:-}"
+  [[ -z "$docker_host" ]] && return 0
+
+  for _ in $(seq 1 120); do
+    DOCKER_HOST="$docker_host" /usr/local/bin/docker-real version >/dev/null 2>&1 && return 0
+    sleep 0.25
+  done
+
+  echo "Docker API unavailable at ${docker_host}" >&2
+  exit 1
+}
 
 if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   mkdir -p /etc/sing-box
@@ -77,7 +91,7 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     uuidgen | tr '[:upper:]' '[:lower:]'           > "$_env_dir/stable_id"
     python3 -c "import os; print(os.urandom(32).hex())" > "$_env_dir/user_id"
     uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'    > "$_env_dir/machine_id"
-    echo "host-$(uuidgen | cut -d- -f1 | tr '[:upper:]' '[:lower:]')" > "$_env_dir/hostname"
+    echo "studio-$(uuidgen | cut -d- -f1 | tr '[:upper:]' '[:lower:]')" > "$_env_dir/hostname"
     printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) > "$_env_dir/mac_address"
 
     # Timezone and language from geo detection
@@ -110,7 +124,9 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   export CAC_HOSTNAME="$(cat "$_env_dir/hostname" 2>/dev/null)"
   export CAC_MAC="$(cat "$_env_dir/mac_address" 2>/dev/null)"
   export CAC_MACHINE_ID="$(cat "$_env_dir/machine_id" 2>/dev/null)"
-  export CAC_USERNAME="cac-user"
+  export CAC_USERNAME="devuser"
+  hostname "$CAC_HOSTNAME" 2>/dev/null || true
+  printf '%s\n' "$CAC_HOSTNAME" > /etc/hostname 2>/dev/null || true
 
   # Write all env vars to a single file, sourced by .bashrc
   {
@@ -118,9 +134,12 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     echo "export CAC_MAC=\"$CAC_MAC\""
     echo "export CAC_MACHINE_ID=\"$CAC_MACHINE_ID\""
     echo "export CAC_USERNAME=\"$CAC_USERNAME\""
+    echo "export DOCKER_HOST=\"${DOCKER_HOST:-}\""
   } >> /root/.cac-env
   grep -q 'cac-env' /root/.bashrc 2>/dev/null || \
     echo '[ -f ~/.cac-env ] && source ~/.cac-env' >> /root/.bashrc
+  grep -q 'docker-real' /root/.bashrc 2>/dev/null || \
+    echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.bashrc
 
   if [[ "$HEALTHCHECK" == "1" ]]; then
     echo "Running startup checks..."
@@ -146,6 +165,8 @@ else
   echo "SINGBOX_ENABLE must be 0 or 1" >&2
   exit 1
 fi
+
+wait_for_docker_host
 
 _cleanup() {
   [[ -n "$_SINGBOX_PID" ]] && kill -TERM "$_SINGBOX_PID" 2>/dev/null && wait "$_SINGBOX_PID" 2>/dev/null || true

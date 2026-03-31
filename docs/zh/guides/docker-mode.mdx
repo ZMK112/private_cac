@@ -1,15 +1,18 @@
 ---
 title: "Docker 模式"
-description: "在完全隔离的容器中运行 Claude Code，支持 TUN 网络。"
+description: "在隔离容器中运行 Claude Code，支持 TUN 网络和可选的宿主 Docker 访问。"
 icon: "docker"
 ---
 
-Docker 模式提供最强的隔离：独立的网络命名空间，配合 sing-box TUN 透明代理，加上 cac 身份保护和预装的 Claude Code。
+Docker 模式会隔离主 Claude Code 容器：使用独立网络命名空间、sing-box TUN 透明代理、cac 身份保护，并预装 Claude Code。
+
+如果你在 `cac` 容器里启用了子容器工作流，这部分便利性来自通过 sidecar 代理访问宿主 Docker Engine。主 `cac` 容器仍然隔离，但子容器不会自动继承主容器的 leak-safe 网络路径。
 
 ## 快速开始
 
 ```bash
 cac docker setup     # 粘贴你的代理地址
+cac docker create    # 如果在仓库里运行，则构建本地镜像
 cac docker start     # 启动容器
 cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 ```
@@ -55,6 +58,30 @@ trojan://...               # Trojan 分享链接
 ## 持久化存储
 
 `/root` 和 `/home` 通过 bind mount 挂载到主机的 `docker/data/`。你的 Claude Code 会话、设置和工作文件在容器重启后依然保留。
+
+`/workspace` 也会从宿主的 `docker/data/workspace` 挂载进容器。如果 Claude Code 需要启动带 bind mount 的子容器，项目应放在这里。
+
+## `cac` 内部启动子容器
+
+在容器里，`docker` 是对真实 Docker CLI 的一层包装：
+
+- 它通过专用的 `docker-proxy` sidecar 访问宿主 Docker Engine
+- 会把 `/workspace/...` 的 bind mount 改写为宿主对应路径
+- 默认给子容器使用 `bridge` 网络，除非你显式传 `--network`
+- 会自动打标签，方便识别和清理 Claude 创建的子容器
+
+需要明确的网络边界：
+
+- `docker pull` 和 `docker build` 走的是宿主 Docker Engine，不是主 `cac` 容器自己的 TUN 路径
+- 子容器运行时流量默认也是宿主 Docker Engine 的普通网络，不会自动跟随主容器代理
+- 如果你希望 registry 流量走代理，需要单独给 Docker Engine 或 Docker Desktop 配 daemon 代理
+- 如果你希望子容器里的应用流量走代理，需要在 `docker/.env` 里设置 `CAC_CHILD_CONTAINER_PROXY_URL`，或者自己传 `-e ALL_PROXY=... -e HTTPS_PROXY=...`
+
+重要说明：
+
+- 这一模式下，主 `cac` 容器仍然是隔离最强的一层
+- 但容器内的 Docker 访问本身不再是强隔离边界，因为 Claude Code 可以请求宿主 Docker Engine 创建其他容器
+- 不要假设子容器在项目代理失效时仍然 fail-closed；如果你需要这种行为，必须分别配置 daemon 代理和子容器代理环境变量
 
 ## 端口转发
 
