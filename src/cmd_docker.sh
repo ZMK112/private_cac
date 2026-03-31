@@ -32,6 +32,10 @@ _dk_port_dir="/tmp/cac-docker-ports"
 _dk_image="ghcr.io/nmhjklnm/cac-docker:latest"
 _dk_build_file="docker-compose.build.yml"
 
+_dk_host_docker() {
+  env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
+}
+
 _dk_init() {
   local docker_dir
   docker_dir=$(_docker_dir)
@@ -57,6 +61,7 @@ _dk_can_build_local() {
 _dk_load_env() {
   # shellcheck disable=SC1090  # dynamic env file path
   [[ -f "$_dk_env_file" ]] && set -a && source "$_dk_env_file" && set +a
+  unset DOCKER_HOST DOCKER_CONTEXT 2>/dev/null || true
 }
 
 _dk_read_env() {
@@ -82,7 +87,7 @@ _dk_write_env() {
 }
 
 _dk_detect_mode() {
-  if docker info 2>/dev/null | grep -qi "docker desktop\|operating system:.*docker desktop\|platform.*desktop"; then
+  if _dk_host_docker info 2>/dev/null | grep -qi "docker desktop\|operating system:.*docker desktop\|platform.*desktop"; then
     echo "local"
   elif [[ "$(uname -s)" == "Darwin" ]] || [[ "$(uname -s)" == MINGW* ]] || [[ "$(uname -s)" == CYGWIN* ]]; then
     echo "local"
@@ -117,7 +122,7 @@ _dk_compose() {
   local files
   # shellcheck disable=SC2207  # intentional word splitting
   files=($(_dk_compose_files))
-  docker compose "${files[@]}" "$@"
+  _dk_host_docker compose "${files[@]}" "$@"
 }
 
 _dk_detect_network() {
@@ -325,12 +330,17 @@ _dk_cmd_setup() {
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
   _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
   _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
-  _dk_write_env DOCKER_HOST "tcp://engine-gateway:2375"
+  _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://engine-gateway:2375"
+  if [[ -f "$_dk_env_file" ]]; then
+    local cleanup_tmp
+    cleanup_tmp=$(mktemp)
+    grep -v '^DOCKER_HOST=' "$_dk_env_file" > "$cleanup_tmp" && mv "$cleanup_tmp" "$_dk_env_file"
+  fi
 
   _ok "Config saved"
   echo ""
   _info "Shared workspace: \033[1m${docker_dir}/data/workspace\033[0m → /workspace"
-  _info "Docker API: \033[1mtcp://engine-gateway:2375\033[0m (via docker-proxy sidecar)"
+  _info "Container Docker API: \033[1mtcp://engine-gateway:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
 
@@ -345,7 +355,7 @@ _dk_cmd_create() {
     _info "Building docker-proxy image..."
     _dk_compose build docker-proxy
     _info "Pulling image..."
-    docker pull "$_dk_image"
+    _dk_host_docker pull "$_dk_image"
   fi
   echo ""
   _ok "Image ready"
@@ -483,10 +493,10 @@ _dk_cmd_status() {
   local workspace_host child_net docker_host child_proxy
   workspace_host=$(_dk_read_env CAC_WORKSPACE_HOST)
   child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
-  docker_host=$(_dk_read_env DOCKER_HOST)
+  docker_host=$(_dk_read_env CAC_CONTAINER_DOCKER_HOST)
   child_proxy=$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)
   [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
-  [[ -n "$docker_host" ]] && printf "  Docker API: %s\n" "$docker_host"
+  [[ -n "$docker_host" ]] && printf "  Container Docker API: %s\n" "$docker_host"
   [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
   [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $child_proxy"
 
