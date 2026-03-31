@@ -17,6 +17,80 @@ if [[ "$DISABLE_IPV6" == "1" ]]; then
 fi
 
 _SINGBOX_PID=""
+_DOCKER_ROUTE_DEV=""
+_DOCKER_ROUTE_VIA=""
+_DOCKER_ROUTE_SRC=""
+_DOCKER_ROUTE_DST=""
+_DOCKER_ROUTE_HOST=""
+
+docker_host_target() {
+  local docker_host="${DOCKER_HOST:-}" target=""
+  [[ -z "$docker_host" ]] && return 1
+
+  case "$docker_host" in
+    tcp://*)
+      target="${docker_host#tcp://}"
+      target="${target%%/*}"
+      if [[ "$target" == \[*\]*:* ]]; then
+        target="${target#\[}"
+        target="${target%%]*}"
+      else
+        target="${target%%:*}"
+      fi
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+
+  printf '%s\n' "$target"
+}
+
+resolve_docker_host_ip() {
+  local target=""
+  target="$(docker_host_target || true)"
+  [[ -z "$target" ]] && return 1
+
+  if [[ "$target" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s\n' "$target"
+    return 0
+  fi
+
+  getent ahostsv4 "$target" 2>/dev/null | awk 'NR==1{print $1}'
+}
+
+capture_docker_host_route() {
+  local docker_ip route_line docker_target
+  docker_target="$(docker_host_target || true)"
+  docker_ip="$(resolve_docker_host_ip || true)"
+  [[ -z "$docker_ip" || -z "$docker_target" ]] && return 0
+
+  route_line="$(ip -4 route get "$docker_ip" 2>/dev/null | head -n1 || true)"
+  [[ -z "$route_line" ]] && return 0
+
+  _DOCKER_ROUTE_DST="$docker_ip/32"
+  _DOCKER_ROUTE_HOST=""
+  if [[ "$docker_target" != "$docker_ip" ]]; then
+    _DOCKER_ROUTE_HOST="$docker_target"
+  fi
+  _DOCKER_ROUTE_DEV="$(awk '{for (i = 1; i <= NF; i++) if ($i == "dev") {print $(i + 1); exit}}' <<<"$route_line")"
+  _DOCKER_ROUTE_VIA="$(awk '{for (i = 1; i <= NF; i++) if ($i == "via") {print $(i + 1); exit}}' <<<"$route_line")"
+  _DOCKER_ROUTE_SRC="$(awk '{for (i = 1; i <= NF; i++) if ($i == "src") {print $(i + 1); exit}}' <<<"$route_line")"
+}
+
+pin_docker_host_route() {
+  [[ -z "$_DOCKER_ROUTE_DST" || -z "$_DOCKER_ROUTE_DEV" ]] && return 0
+
+  local cmd=(ip route replace "$_DOCKER_ROUTE_DST" dev "$_DOCKER_ROUTE_DEV")
+  [[ -n "$_DOCKER_ROUTE_VIA" ]] && cmd+=(via "$_DOCKER_ROUTE_VIA")
+  [[ -n "$_DOCKER_ROUTE_SRC" ]] && cmd+=(src "$_DOCKER_ROUTE_SRC")
+  "${cmd[@]}" 2>/dev/null || true
+  if [[ -n "$_DOCKER_ROUTE_HOST" ]]; then
+    grep -qE "(^|[[:space:]])${_DOCKER_ROUTE_HOST}([[:space:]]|$)" /etc/hosts 2>/dev/null || \
+      printf '%s %s\n' "${_DOCKER_ROUTE_DST%/32}" "$_DOCKER_ROUTE_HOST" >> /etc/hosts
+  fi
+}
+
 wait_for_docker_host() {
   local docker_host="${DOCKER_HOST:-}"
   [[ -z "$docker_host" ]] && return 0
@@ -29,6 +103,8 @@ wait_for_docker_host() {
   echo "Docker API unavailable at ${docker_host}" >&2
   exit 1
 }
+
+capture_docker_host_route
 
 if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   mkdir -p /etc/sing-box
@@ -50,6 +126,7 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   _last="${_base##*.}"
   TUN_DNS="${_prefix}.$(( _last + 1 ))"
   printf 'nameserver %s\noptions ndots:0\n' "$TUN_DNS" > /etc/resolv.conf
+  pin_docker_host_route
 
   # ── Auto-detect timezone and locale from exit IP ──────────────
   _GEO_TZ="" _GEO_LANG=""

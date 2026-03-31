@@ -321,15 +321,16 @@ _dk_cmd_setup() {
   _dk_write_env CAC_CONTAINER_NAME "studio-main"
   _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "studio-main"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
+  _dk_write_env CAC_DOCKER_PROXY_NAME "engine-gateway"
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
   _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
   _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
-  _dk_write_env DOCKER_HOST "tcp://172.31.255.2:2375"
+  _dk_write_env DOCKER_HOST "tcp://engine-gateway:2375"
 
   _ok "Config saved"
   echo ""
   _info "Shared workspace: \033[1m${docker_dir}/data/workspace\033[0m → /workspace"
-  _info "Docker API: \033[1mtcp://172.31.255.2:2375\033[0m (via docker-proxy sidecar)"
+  _info "Docker API: \033[1mtcp://engine-gateway:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
 
