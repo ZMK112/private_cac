@@ -36,7 +36,9 @@ RUN set -eux; \
 RUN set -eux; \
     export ALL_PROXY="${BUILD_PROXY:-}" all_proxy="${BUILD_PROXY:-}"; \
     curl ${BUILD_PROXY:+-x "$BUILD_PROXY"} -fsSL https://claude.ai/install.sh | bash; \
-    test -x /root/.local/bin/claude
+    test -x /root/.local/bin/claude; \
+    cp /root/.local/bin/claude /usr/local/bin/claude; \
+    chmod +x /usr/local/bin/claude
 
 # cac (Claude Anti-fingerprint Cloak) — build from source
 COPY src/ /tmp/cac-build/src/
@@ -48,7 +50,10 @@ RUN cd /tmp/cac-build && bash build.sh \
     && chmod +x /usr/local/bin/cac \
     && rm -rf /tmp/cac-build
 
-ENV LANG=en_US.UTF-8 \
+ENV TZ=Asia/Tokyo \
+    LANG=ja_JP.UTF-8 \
+    LC_ALL=ja_JP.UTF-8 \
+    LANGUAGE=ja_JP:ja \
     PATH="/root/.local/bin:${PATH}"
 
 RUN echo 'export PATH="/root/.local/bin:$PATH"' >> /root/.bashrc

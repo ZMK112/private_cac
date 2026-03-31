@@ -2712,10 +2712,19 @@ _dk_host_docker() {
 }
 
 _dk_workspace_host_abs() {
-  local docker_dir
-  docker_dir=$(_docker_dir)
-  [[ -n "$docker_dir" ]] || return 1
-  printf '%s\n' "${docker_dir}/data/workspace"
+  pwd -P
+}
+
+_dk_workspace_host_current() {
+  local container_name source
+  container_name=$(_dk_read_env CAC_CONTAINER_NAME)
+  container_name="${container_name:-studio-main}"
+  source=$(_dk_host_docker inspect -f '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}' "$container_name" 2>/dev/null || true)
+  if [[ -n "$source" ]]; then
+    printf '%s\n' "$source"
+  else
+    _dk_workspace_host_abs
+  fi
 }
 
 _dk_init() {
@@ -3005,7 +3014,7 @@ _dk_cmd_setup() {
   # Create persistent data directory
   local docker_dir
   docker_dir=$(_docker_dir)
-  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home" "${docker_dir}/data/workspace"
+  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home"
   _dk_write_env CAC_CONTAINER_NAME "studio-main"
   _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "studio-main"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
@@ -3022,7 +3031,7 @@ _dk_cmd_setup() {
 
   _ok "Config saved"
   echo ""
-  _info "Shared workspace: \033[1m${docker_dir}/data/workspace\033[0m → /workspace"
+  _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
   _info "Container Docker API: \033[1mtcp://engine-gateway:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
@@ -3061,7 +3070,7 @@ _dk_cmd_start() {
     _info "Enter with:   \033[1mcac docker enter\033[0m"
     _info "Check with:   \033[1mcac docker check\033[0m"
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
-    _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_abs 2>/dev/null || echo unset))"
+    _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_current 2>/dev/null || echo unset))"
   else
     _err "Container state: $state"
     _info "Logs: cac docker logs"
@@ -3174,7 +3183,7 @@ _dk_cmd_status() {
     [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
   fi
   local workspace_host child_net docker_host child_proxy
-  workspace_host=$(_dk_workspace_host_abs 2>/dev/null || echo "")
+  workspace_host=$(_dk_workspace_host_current 2>/dev/null || echo "")
   child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
   docker_host=$(_dk_read_env CAC_CONTAINER_DOCKER_HOST)
   child_proxy=$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)

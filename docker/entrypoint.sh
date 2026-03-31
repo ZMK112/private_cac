@@ -172,8 +172,8 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) > "$_env_dir/mac_address"
 
     # Timezone and language from geo detection
-    echo "${_GEO_TZ:-America/New_York}"     > "$_env_dir/tz"
-    echo "${_GEO_LANG:-en_US.UTF-8}"        > "$_env_dir/lang"
+    echo "${_GEO_TZ:-Asia/Tokyo}"           > "$_env_dir/tz"
+    echo "${_GEO_LANG:-ja_JP.UTF-8}"        > "$_env_dir/lang"
 
     # Generate mTLS client certificate
     if [[ -f "$CAC_DIR/ca/ca_key.pem" ]]; then
@@ -202,6 +202,13 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   export CAC_MAC="$(cat "$_env_dir/mac_address" 2>/dev/null)"
   export CAC_MACHINE_ID="$(cat "$_env_dir/machine_id" 2>/dev/null)"
   export CAC_USERNAME="devuser"
+  export TZ="$(cat "$_env_dir/tz" 2>/dev/null || echo Asia/Tokyo)"
+  export LANG="$(cat "$_env_dir/lang" 2>/dev/null || echo ja_JP.UTF-8)"
+  export LC_ALL="$LANG"
+  case "$LANG" in
+    ja_JP.UTF-8) export LANGUAGE="ja_JP:ja" ;;
+    *) export LANGUAGE="${LANG%%.*}" ;;
+  esac
   hostname "$CAC_HOSTNAME" 2>/dev/null || true
   printf '%s\n' "$CAC_HOSTNAME" > /etc/hostname 2>/dev/null || true
 
@@ -211,6 +218,10 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     echo "export CAC_MAC=\"$CAC_MAC\""
     echo "export CAC_MACHINE_ID=\"$CAC_MACHINE_ID\""
     echo "export CAC_USERNAME=\"$CAC_USERNAME\""
+    echo "export TZ=\"$TZ\""
+    echo "export LANG=\"$LANG\""
+    echo "export LC_ALL=\"$LC_ALL\""
+    echo "export LANGUAGE=\"$LANGUAGE\""
     echo "export DOCKER_HOST=\"${DOCKER_HOST:-}\""
   } >> /root/.cac-env
   grep -q 'cac-env' /root/.bashrc 2>/dev/null || \

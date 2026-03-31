@@ -92,13 +92,21 @@ check_cac() {
 }
 
 check_hostname() {
-  local spoofed_hn
+  local spoofed_hn current current_hn actual_hn
   spoofed_hn="${CAC_HOSTNAME:-}"
-  if [ -n "$spoofed_hn" ]; then
-    echo "spoofed: $spoofed_hn"
-  else
-    local current
-    current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "")
+  current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "")
+  current_hn=""
+  actual_hn="$(hostname 2>/dev/null || true)"
+
+  if [ -n "$current" ] && [ -f "$HOME/.cac/envs/$current/hostname" ]; then
+    current_hn=$(tr -d '[:space:]' < "$HOME/.cac/envs/$current/hostname")
+  fi
+
+  if [ -z "$spoofed_hn" ]; then
+    spoofed_hn="$current_hn"
+  fi
+
+  if [ -z "$spoofed_hn" ]; then
     if [ -z "$current" ]; then
       echo "no profile active (run: cac add <name> <proxy> inside container)"
     else
@@ -106,6 +114,13 @@ check_hostname() {
       return 1
     fi
   fi
+
+  if [ -n "$actual_hn" ] && [ "$actual_hn" != "$spoofed_hn" ]; then
+    echo "hostname mismatch: actual=$actual_hn expected=$spoofed_hn"
+    return 1
+  fi
+
+  echo "spoofed: $spoofed_hn"
 }
 
 # ── Run all checks ──────────────────────────────────────────────────
