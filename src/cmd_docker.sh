@@ -36,6 +36,13 @@ _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
 }
 
+_dk_workspace_host_abs() {
+  local docker_dir
+  docker_dir=$(_docker_dir)
+  [[ -n "$docker_dir" ]] || return 1
+  printf '%s\n' "${docker_dir}/data/workspace"
+}
+
 _dk_init() {
   local docker_dir
   docker_dir=$(_docker_dir)
@@ -119,10 +126,12 @@ _dk_compose_files() {
 }
 
 _dk_compose() {
-  local files
+  local files workspace_host
   # shellcheck disable=SC2207  # intentional word splitting
   files=($(_dk_compose_files))
-  _dk_host_docker compose "${files[@]}" "$@"
+  workspace_host=$(_dk_workspace_host_abs) || return 1
+  env -u DOCKER_HOST -u DOCKER_CONTEXT CAC_WORKSPACE_HOST="$workspace_host" \
+    docker compose "${files[@]}" "$@"
 }
 
 _dk_detect_network() {
@@ -322,7 +331,6 @@ _dk_cmd_setup() {
   local docker_dir
   docker_dir=$(_docker_dir)
   mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home" "${docker_dir}/data/workspace"
-  _dk_write_env CAC_WORKSPACE_HOST "${docker_dir}/data/workspace"
   _dk_write_env CAC_CONTAINER_NAME "studio-main"
   _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "studio-main"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
@@ -334,7 +342,7 @@ _dk_cmd_setup() {
   if [[ -f "$_dk_env_file" ]]; then
     local cleanup_tmp
     cleanup_tmp=$(mktemp)
-    grep -v '^DOCKER_HOST=' "$_dk_env_file" > "$cleanup_tmp" && mv "$cleanup_tmp" "$_dk_env_file"
+    grep -v -E '^(DOCKER_HOST|CAC_WORKSPACE_HOST)=' "$_dk_env_file" > "$cleanup_tmp" && mv "$cleanup_tmp" "$_dk_env_file"
   fi
 
   _ok "Config saved"
@@ -378,7 +386,7 @@ _dk_cmd_start() {
     _info "Enter with:   \033[1mcac docker enter\033[0m"
     _info "Check with:   \033[1mcac docker check\033[0m"
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
-    _info "Workspace:    \033[1m/workspace\033[0m (host: ${CAC_WORKSPACE_HOST:-unset})"
+    _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_abs 2>/dev/null || echo unset))"
   else
     _err "Container state: $state"
     _info "Logs: cac docker logs"
@@ -491,7 +499,7 @@ _dk_cmd_status() {
     [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
   fi
   local workspace_host child_net docker_host child_proxy
-  workspace_host=$(_dk_read_env CAC_WORKSPACE_HOST)
+  workspace_host=$(_dk_workspace_host_abs 2>/dev/null || echo "")
   child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
   docker_host=$(_dk_read_env CAC_CONTAINER_DOCKER_HOST)
   child_proxy=$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)
