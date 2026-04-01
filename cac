@@ -3602,6 +3602,22 @@ _dk_cmd_restart() {
   _dk_cmd_start
 }
 
+_dk_cmd_rebuild() {
+  _dk_init || return 1
+  local state="not created"
+  state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
+
+  CAC_DOCKER_REBUILD=1 _dk_cmd_create || return 1
+
+  echo ""
+  if [[ "$state" == "running" ]]; then
+    _warn "Container is still using the previous image until it is restarted"
+    _info "Next: \033[1mcac docker restart\033[0m"
+  else
+    _info "Next: \033[1mcac docker start\033[0m"
+  fi
+}
+
 _dk_cmd_enter() {
   _dk_init || return 1
   _dk_compose exec -u "${CAC_FAKE_USER:-cherny}" "$_dk_service" bash
@@ -3740,6 +3756,7 @@ cmd_docker() {
   case "$subcmd" in
     setup)    _dk_cmd_setup ;;
     create)   _dk_cmd_create ;;
+    rebuild)  _dk_cmd_rebuild ;;
     start)    _dk_cmd_start ;;
     stop)     _dk_cmd_stop ;;
     restart)  _dk_cmd_restart ;;
@@ -3756,6 +3773,7 @@ cmd_docker() {
       printf "\033[1mLifecycle:\033[0m\n"
       echo "  setup               Configure proxy (interactive)"
       echo "  create              Build/pull the Docker image"
+      echo "  rebuild             Force-rebuild the Docker image"
       echo "  start               Start the container"
       echo "  stop                Stop the container"
       echo "  restart             Restart the container"

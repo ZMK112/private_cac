@@ -19,6 +19,7 @@ description: 版本发布历史和重要变更
 - 修复本地仓库重装链路：`bash install.sh --local` 现在会自动刷新已有 Docker 栈并应用新安装代码，同时新增 `CAC_DOCKER_REBUILD=1` 用于按需强制重建主镜像。
 - 修复 release / source archive 安装链路：`install.sh` 现在会把解压后的源码包识别为本地仓库，即使缺少未提交的顶层生成文件也不会误回退到 remote 模式；同时补充带版本号的 portable release 安装包。
 - 修复已安装 `cac docker` 的资源解析：当前工作目录下无关的 `docker/` 不再覆盖 `~/.cac/docker`；同时本地 Docker 模式下输入 `127.0.0.1` / `localhost` 代理时会自动改写成 `host.docker.internal`。
+- 新增 `cac docker rebuild`，可以显式强制重建本地 Docker 镜像，不再需要手动设置 `CAC_DOCKER_REBUILD=1`。
 
 **验证体系与文档**
 
