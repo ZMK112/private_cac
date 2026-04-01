@@ -47,6 +47,20 @@ _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
 }
 
+_dk_host_docker_socket() {
+  local socket
+  socket="$(
+    _dk_host_docker context inspect 2>/dev/null |
+      awk -F'"' '/"Host": "unix:\/\//{print $4; exit}'
+  )"
+  socket="${socket#unix://}"
+  if [[ -n "$socket" ]]; then
+    printf '%s\n' "$socket"
+  else
+    printf '%s\n' "/var/run/docker.sock"
+  fi
+}
+
 _dk_workspace_host_abs() {
   pwd -P
 }
@@ -259,12 +273,33 @@ _dk_compose_files() {
 }
 
 _dk_compose() {
-  local files workspace_host
+  local files workspace_host docker_socket
   # shellcheck disable=SC2207  # intentional word splitting
   files=($(_dk_compose_files))
   workspace_host=$(_dk_workspace_host_abs) || return 1
-  env -u DOCKER_HOST -u DOCKER_CONTEXT CAC_WORKSPACE_HOST="$workspace_host" \
+  docker_socket="$(_dk_host_docker_socket)"
+  env -u DOCKER_HOST -u DOCKER_CONTEXT \
+    CAC_WORKSPACE_HOST="$workspace_host" \
+    CAC_HOST_DOCKER_SOCKET="$docker_socket" \
     docker compose "${files[@]}" "$@"
+}
+
+_dk_wait_runtime_ready() {
+  local state="" pid1_uid="" tries
+  for tries in $(seq 1 90); do
+    state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "")
+    if [[ "$state" == "running" ]]; then
+      pid1_uid="$(
+        _dk_compose exec -T "$_dk_service" sh -lc "awk '/^Uid:/{print \$2; exit}' /proc/1/status" 2>/dev/null |
+          tr -d '\r\n'
+      )"
+      if [[ -n "$pid1_uid" && "$pid1_uid" != "0" ]]; then
+        return 0
+      fi
+    fi
+    sleep 1
+  done
+  return 1
 }
 
 _dk_detect_network() {
@@ -665,19 +700,20 @@ _dk_cmd_start() {
     _dk_compose up -d
   fi
   _dk_shim_up
-  sleep 2
 
   local state
-  state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
-  if [[ "$state" == "running" ]]; then
+  if _dk_wait_runtime_ready; then
+    state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
     _ok "Container running"
     _info "Enter with:   \033[1mcac docker enter\033[0m"
     _info "Check with:   \033[1mcac docker check\033[0m"
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
     _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_current 2>/dev/null || echo unset))"
   else
+    state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
     _err "Container state: $state"
     _info "Logs: cac docker logs"
+    return 1
   fi
 }
 
@@ -706,8 +742,14 @@ _dk_cmd_rebuild() {
   if [[ "$state" == "running" || "$state" == "exited" || "$state" == "created" || "$state" == "restarting" ]]; then
     _info "Recreating existing container to use the rebuilt image..."
     _dk_compose up -d --force-recreate || return 1
-    _ok "Container recreated with rebuilt image"
-    _info "Next: \033[1mcac docker check\033[0m"
+    if _dk_wait_runtime_ready; then
+      _ok "Container recreated with rebuilt image"
+      _info "Next: \033[1mcac docker check\033[0m"
+    else
+      _err "Container did not finish initialization after rebuild"
+      _info "Logs: \033[1mcac docker logs\033[0m"
+      return 1
+    fi
   else
     _info "Next: \033[1mcac docker start\033[0m"
   fi

@@ -22,6 +22,8 @@ All notable changes to this project are documented here. Each entry links to the
 - Added `cac docker rebuild` to force a local Docker image rebuild explicitly, without relying on `CAC_DOCKER_REBUILD=1`.
 - Updated `cac docker rebuild` so it now recreates an existing container after rebuilding, ensuring the rebuilt image actually takes effect.
 - Updated `cac docker setup` so derived child-proxy settings refresh when the main proxy changes, and clarified that bare `host:port` inputs are treated as SOCKS5 unless `http://` is specified.
+- Fixed Docker sidecar socket mounting to follow the active Docker context's Unix socket instead of assuming `/var/run/docker.sock`, improving compatibility on machines where the CLI talks to Docker through `~/.docker/run/docker.sock`.
+- Updated `cac docker start` and `cac docker rebuild` so they only report success after the main container has finished initialization and PID 1 has actually dropped to the runtime user.
 
 **Validation and docs**
 

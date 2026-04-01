@@ -6,7 +6,7 @@ services:
       dockerfile: Dockerfile.socket-proxy
     container_name: ${CAC_DOCKER_PROXY_NAME:-boris-gateway}
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - ${CAC_HOST_DOCKER_SOCKET:-/var/run/docker.sock}:/var/run/docker.sock
     networks:
       docker_control:
         ipv4_address: ${CAC_DOCKER_PROXY_IP:-172.31.255.2}
