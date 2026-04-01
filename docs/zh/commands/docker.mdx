@@ -52,5 +52,6 @@ trojan://...               # Trojan
 ## 说明
 
 - `cac docker setup` 会把配置写入当前使用的 Docker 资源目录：本地安装后通常是 `~/.cac/docker/.env`，在源码树中运行时则是 `docker/.env`。
+- `setup` 向导在正常情况下只会询问代理，部署模式会自动检测，其他启动所需变量会自动写入默认值；只有远程模式的 macvlan 自动探测失败时，才会继续询问网络参数。
 - `cac docker enter` 会进入主容器的 shell，里面已经准备好 `claude`、`cac` 和 `docker`。
 - `cac docker check` 只校验主容器的 TUN 代理路径。子容器默认走宿主 Docker 网络，除非你显式注入代理环境变量。

@@ -3016,6 +3016,84 @@ _dk_write_env() {
   fi
 }
 
+_dk_delete_env_keys() {
+  [[ -f "$_dk_env_file" ]] || return 0
+  local tmp keys
+  tmp=$(mktemp)
+  keys="$*"
+  awk -v keys="$keys" '
+    BEGIN {
+      n = split(keys, arr, " ")
+      for (i = 1; i <= n; i++) drop[arr[i]] = 1
+    }
+    {
+      key = $0
+      sub(/=.*/, "", key)
+      if (!(key in drop)) print
+    }
+  ' "$_dk_env_file" > "$tmp" && mv "$tmp" "$_dk_env_file"
+}
+
+_dk_prompt_value() {
+  local label="$1" default="${2:-}" required="${3:-0}" input=""
+  while true; do
+    if [[ -n "$default" ]]; then
+      read -r -p "  ${label} [${default}]: " input
+    else
+      read -r -p "  ${label}: " input
+    fi
+    input="${input:-$default}"
+    if [[ "$required" == "1" && -z "$input" ]]; then
+      _warn "${label} is required"
+      continue
+    fi
+    printf '%s\n' "$input"
+    return 0
+  done
+}
+
+_dk_guess_child_proxy_url() {
+  local mode="$1" raw="$2" host="" port="" scheme="" rest="" tail=""
+  [[ -z "$raw" ]] && return 0
+
+  case "$raw" in
+    *://*)
+      case "$raw" in
+        socks5://*|socks5h://*|http://*|https://*)
+          scheme="${raw%%://*}"
+          rest="${raw#*://}"
+          [[ "$rest" == *"@"* ]] && rest="${rest#*@}"
+          host="${rest%%:*}"
+          tail="${rest#*:}"
+          port="${tail%%/*}"
+          ;;
+        *)
+          return 0
+          ;;
+      esac
+      ;;
+    *)
+      scheme="socks5h"
+      IFS=: read -r host port _ <<<"$raw"
+      ;;
+  esac
+
+  [[ -n "$host" && -n "$port" ]] || return 0
+  if [[ "$mode" == "local" ]] && [[ "$host" == "127.0.0.1" || "$host" == "localhost" ]]; then
+    host="host.docker.internal"
+  fi
+  printf '%s://%s:%s\n' "$scheme" "$host" "$port"
+}
+
+_dk_default_child_no_proxy() {
+  local mode="$1"
+  if [[ "$mode" == "local" ]]; then
+    printf '%s\n' "localhost,127.0.0.1,::1,host.docker.internal"
+  else
+    printf '%s\n' "localhost,127.0.0.1,::1"
+  fi
+}
+
 _dk_detect_mode() {
   if _dk_host_docker info 2>/dev/null | grep -qi "docker desktop\|operating system:.*docker desktop\|platform.*desktop"; then
     echo "local"
@@ -3324,50 +3402,66 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy
-  proxy=$(_dk_read_env PROXY_URI)
-  if [[ -n "$proxy" ]]; then
-    _info "Current proxy: \033[1m${proxy}\033[0m"
-    read -rp "  New proxy URI (Enter to keep): " input
-    [[ -n "$input" ]] && proxy="$input"
-  else
-    read -rp "  Proxy URI (e.g. ss://..., ip:port:user:pass): " proxy
-  fi
-  if [[ -z "$proxy" ]]; then
-    _err "Proxy is required"
-    return 1
-  fi
+  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy
+  proxy=$(_dk_prompt_value "Proxy URI (e.g. ss://..., ip:port:user:pass)" "$(_dk_read_env PROXY_URI)" 1) || return 1
   _dk_write_env PROXY_URI "$proxy"
 
-  local mode
-  mode=$(_dk_detect_mode)
+  detected_mode=$(_dk_detect_mode)
+  mode="$detected_mode"
   _dk_write_env DEPLOY_MODE "$mode"
 
   echo ""
   if [[ "$mode" == "local" ]]; then
     _info "Detected: \033[1mlocal laptop\033[0m (Docker Desktop)"
     _info "Mode: bridge network — main container isolated, child containers use host Docker"
+    _dk_delete_env_keys HOST_INTERFACE MACVLAN_SUBNET MACVLAN_GATEWAY MACVLAN_IP SHIM_IP
   else
     _info "Detected: \033[1mremote server\033[0m (native Linux Docker)"
     _info "Mode: macvlan — main container isolated from host, child containers use host Docker"
     echo ""
     _info "Detecting network..."
-    _dk_detect_network
+    if ! _dk_detect_network; then
+      _warn "Auto-detect failed, enter the required remote network values"
+      _dk_write_env HOST_INTERFACE "$(_dk_prompt_value "Host interface" "$(_dk_read_env HOST_INTERFACE)" 1)" || return 1
+      _dk_write_env MACVLAN_SUBNET "$(_dk_prompt_value "Macvlan subnet (CIDR)" "$(_dk_read_env MACVLAN_SUBNET)" 1)" || return 1
+      _dk_write_env MACVLAN_GATEWAY "$(_dk_prompt_value "Macvlan gateway" "$(_dk_read_env MACVLAN_GATEWAY)" 1)" || return 1
+      _dk_write_env MACVLAN_IP "$(_dk_prompt_value "Container IP" "$(_dk_read_env MACVLAN_IP)" 1)" || return 1
+      _dk_write_env SHIM_IP "$(_dk_prompt_value "Shim IP" "$(_dk_read_env SHIM_IP)" 1)" || return 1
+    fi
   fi
 
   echo ""
-  # Create persistent data directory
-  local docker_dir
+  data_dir="${CAC_DATA:-$(_dk_read_env CAC_DATA)}"
+  data_dir="${data_dir:-./data}"
+  container_name="${CAC_CONTAINER_NAME:-$(_dk_read_env CAC_CONTAINER_NAME)}"
+  container_name="${container_name:-boris-main}"
+  runtime_hostname="${CAC_CONTAINER_RUNTIME_HOSTNAME:-$(_dk_read_env CAC_CONTAINER_RUNTIME_HOSTNAME)}"
+  runtime_hostname="${runtime_hostname:-$container_name}"
+  gateway_name="${CAC_DOCKER_PROXY_NAME:-$(_dk_read_env CAC_DOCKER_PROXY_NAME)}"
+  gateway_name="${gateway_name:-boris-gateway}"
+  child_proxy="${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}"
+  child_proxy="${child_proxy:-$(_dk_guess_child_proxy_url "$mode" "$proxy")}"
+  child_no_proxy="${CAC_CHILD_CONTAINER_NO_PROXY:-$(_dk_read_env CAC_CHILD_CONTAINER_NO_PROXY)}"
+  child_no_proxy="${child_no_proxy:-$(_dk_default_child_no_proxy "$mode")}"
+
   docker_dir=$(_docker_dir)
-  mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home"
-  _dk_write_env CAC_CONTAINER_NAME "boris-main"
-  _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "boris-main"
+  if [[ "$data_dir" == /* ]]; then
+    mkdir -p "${data_dir}/root" "${data_dir}/home"
+  else
+    mkdir -p "${docker_dir}/${data_dir#./}/root" "${docker_dir}/${data_dir#./}/home"
+  fi
+
+  _dk_write_env CAC_DATA "$data_dir"
+  _dk_write_env CAC_CONTAINER_NAME "$container_name"
+  _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "$runtime_hostname"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
-  _dk_write_env CAC_DOCKER_PROXY_NAME "boris-gateway"
+  _dk_write_env CAC_DOCKER_PROXY_NAME "$gateway_name"
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
   _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
   _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
-  _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://boris-gateway:2375"
+  _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://${gateway_name}:2375"
+  _dk_write_env CAC_CHILD_CONTAINER_PROXY_URL "$child_proxy"
+  _dk_write_env CAC_CHILD_CONTAINER_NO_PROXY "$child_no_proxy"
   if [[ -f "$_dk_env_file" ]]; then
     local cleanup_tmp
     cleanup_tmp=$(mktemp)
@@ -3376,8 +3470,13 @@ _dk_cmd_setup() {
 
   _ok "Config saved"
   echo ""
+  _info "Proxy: \033[1m${proxy}\033[0m"
+  _info "Mode: \033[1m${mode}\033[0m"
+  _info "Data dir: \033[1m${data_dir}\033[0m"
+  _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
+  [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m${child_proxy}\033[0m"
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
-  _info "Container Docker API: \033[1mtcp://boris-gateway:2375\033[0m (via docker-proxy sidecar)"
+  _info "Container Docker API: \033[1mtcp://${gateway_name}:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
 

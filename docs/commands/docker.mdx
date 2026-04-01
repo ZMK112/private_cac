@@ -52,5 +52,6 @@ Mode is auto-detected based on your Docker installation.
 ## Notes
 
 - `cac docker setup` writes config into the active Docker resource directory: usually `~/.cac/docker/.env` after a local install, or `docker/.env` when running from the source tree.
+- The setup wizard normally prompts only for the proxy. Deploy mode is auto-detected, and other required values are written with defaults automatically. In remote mode, it only asks for macvlan fields if auto-detection fails.
 - `cac docker enter` opens a shell in the main container. `claude`, `cac`, and `docker` are already on `PATH`.
 - `cac docker check` validates the main container's TUN path. Child containers use host Docker networking unless you explicitly inject proxy envs.
