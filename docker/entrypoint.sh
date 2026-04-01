@@ -5,6 +5,11 @@ SINGBOX_ENABLE="${SINGBOX_ENABLE:-1}"
 DISABLE_IPV6="${DISABLE_IPV6:-1}"
 HEALTHCHECK="${HEALTHCHECK:-1}"
 CAC_PROFILE="${CAC_PROFILE:-default}"
+CHERNY_TEMPLATE_DIR="${CHERNY_TEMPLATE_DIR:-/usr/local/share/cherny}"
+CHERNY_IDENTITY_JSON="${CHERNY_TEMPLATE_DIR}/cherny.identity.json"
+CHERNY_ENV_JSON="${CHERNY_TEMPLATE_DIR}/cherny.env.json"
+CHERNY_PROMPT_JSON="${CHERNY_TEMPLATE_DIR}/cherny.prompt.json"
+CHERNY_TELEMETRY_JSON="${CHERNY_TEMPLATE_DIR}/cherny.telemetry.json"
 
 unset ALL_PROXY HTTP_PROXY HTTPS_PROXY all_proxy http_proxy https_proxy \
       NO_PROXY no_proxy 2>/dev/null || true
@@ -106,6 +111,73 @@ pin_named_route() {
   fi
 }
 
+cherny_flatten_json() {
+  local template="$1"
+  python3 - "$template" <<'PY'
+import json, sys
+
+path = sys.argv[1]
+data = json.load(open(path))
+for key, value in data.items():
+    if isinstance(value, list):
+        value = ",".join(str(item) for item in value)
+    print(f"{key}={value}")
+PY
+}
+
+cherify_layer() {
+  local template="$1" prefix="$2" dir="$3"
+  [[ ! -f "$template" ]] && return
+  while IFS='=' read -r key value; do
+    [[ -z "$key" ]] && continue
+    printf '%s\n' "$value" > "$dir/cherny.${prefix}.${key}"
+    printf 'export CHERNY_%s_%s="%s"\n' "${prefix^^}" "${key^^}" "${value//\"/\\\"}" >> /root/.cac-env
+  done < <(cherny_flatten_json "$template")
+}
+
+apply_cherny_identity() {
+  local template="$CHERNY_IDENTITY_JSON" dir="$1"
+  [[ ! -f "$template" ]] && return
+  local device_id email user_id session_alias
+  read -r device_id email user_id session_alias < <(
+    python3 - "$template" <<'PY'
+import json, sys
+data = json.load(open(sys.argv[1]))
+print(data.get('device_id',''))
+print(data.get('email',''))
+print(data.get('user_id',''))
+print(data.get('session_alias',''))
+PY
+  )
+  [[ -n "$device_id" ]] && {
+    printf '%s\n' "$device_id" > "$dir/cherny.identity.device_id"
+    printf 'export CAC_DEVICE_ID="%s"\n' "$device_id" >> /root/.cac-env
+    printf 'export CHERNY_ID_DEVICE_ID="%s"\n' "$device_id" >> /root/.cac-env
+  }
+  [[ -n "$email" ]] && {
+    printf '%s\n' "$email" > "$dir/cherny.identity.email"
+    printf 'export CAC_EMAIL="%s"\n' "$email" >> /root/.cac-env
+    printf 'export CHERNY_ID_EMAIL="%s"\n' "$email" >> /root/.cac-env
+  }
+  [[ -n "$user_id" ]] && {
+    printf '%s\n' "$user_id" > "$dir/cherny.identity.user_id"
+    printf 'export CAC_USER_ID="%s"\n' "$user_id" >> /root/.cac-env
+    printf 'export CHERNY_ID_USER_ID="%s"\n' "$user_id" >> /root/.cac-env
+  }
+  [[ -n "$session_alias" ]] && {
+    printf '%s\n' "$session_alias" > "$dir/cherny.identity.session_alias"
+    printf 'export CHERNY_ID_SESSION_ALIAS="%s"\n' "$session_alias" >> /root/.cac-env
+  }
+}
+
+apply_cherny_profile() {
+  local dir="$1"
+  apply_cherny_identity "$dir"
+  cherify_layer "$CHERNY_ENV_JSON" "env" "$dir"
+  cherify_layer "$CHERNY_PROMPT_JSON" "prompt" "$dir"
+  cherify_layer "$CHERNY_TELEMETRY_JSON" "telemetry" "$dir"
+}
+
 wait_for_docker_host() {
   local docker_host="${DOCKER_HOST:-}"
   [[ -z "$docker_host" ]] && return 0
@@ -185,7 +257,7 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     uuidgen | tr '[:upper:]' '[:lower:]'           > "$_env_dir/stable_id"
     python3 -c "import os; print(os.urandom(32).hex())" > "$_env_dir/user_id"
     uuidgen | tr -d '-' | tr '[:upper:]' '[:lower:]'    > "$_env_dir/machine_id"
-    echo "studio-$(uuidgen | cut -d- -f1 | tr '[:upper:]' '[:lower:]')" > "$_env_dir/hostname"
+    echo "boris-$(uuidgen | cut -d- -f1 | tr '[:upper:]' '[:lower:]')" > "$_env_dir/hostname"
     printf '02:%02x:%02x:%02x:%02x:%02x' $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) $((RANDOM%256)) > "$_env_dir/mac_address"
 
     # Timezone and language from geo detection
@@ -245,6 +317,8 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     echo '[ -f ~/.cac-env ] && source ~/.cac-env' >> /root/.bashrc
   grep -q 'docker-real' /root/.bashrc 2>/dev/null || \
     echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.bashrc
+
+  apply_cherny_profile "$_env_dir"
 
   if [[ "$HEALTHCHECK" == "1" ]]; then
     echo "Running startup checks..."

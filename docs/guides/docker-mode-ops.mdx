@@ -1,0 +1,60 @@
+---
+title: "Docker mode ops log"
+description: "Documented results for the Docker-mode build, start, and check workflow plus the canonical naming blueprint."
+icon: "shield-check"
+---
+
+## Naming template
+
+Docker mode now uses the `boris-` namespace so nothing in the telemetry stream mentions `cac`. The current pattern is:
+
+- **Main container:** `boris-main`
+- **Docker proxy sidecar:** `boris-gateway`
+- **Hostnames produced by `docker/templates/cherny.identity.json`:** `boris-<short-uuid>`
+- **Workspace mount:** `/workspace` inside the container binds to whatever directory you ran `cac docker start` from on the host.
+
+The canonical identity templates also freeze `TZ=Asia/Tokyo`, `LANG=ja_JP.UTF-8`, and the `env`/`prompt`/`telemetry` blocks that Claude Code would otherwise leak. This mirrors the CC Gateway defense (env vars + Clash rules + gateway rewrite) highlighted by the ByteDance audit of Claude Code telemetry.
+
+## Build & start summary
+
+```bash
+./cac docker create
+# → builds `ghcr.io/nmhjklnm/cac-docker:latest` and `docker-docker-proxy` with the new templates
+
+./cac docker start
+# → boris-gateway and boris-main spin up; workspace `/Users/zmk/tmp/cac` is mounted to `/workspace`
+```
+
+## Check results
+
+```text
+Network
+[TUN  ] ok   tun0 up (1ms)
+[DNS  ] FAIL DNS resolution failed — check DNS_SERVER
+[LEAK ] ok   DNS → 172.19.0.2 (TUN gateway, no leak) (5ms)
+```
+
+The run was killed (exit 137) right after the DNS failure, so the later TCP/HTTP/identity checks never printed.
+
+`cac docker check` currently stops after DNS cannot reach the upstream resolver and then the run is killed (exit 137). The `sing-box` tunnel repeatedly logs:
+
+```
+dns: exchange failed ... dial tcp 192.168.65.254:17890: connect: connection refused
+```
+
+This happens because the local SOCKS5 proxy on `host.docker.internal:17890` was not accepting connections inside this sandbox. To fix it, start a host proxy before rerunning the check:
+
+```bash
+cd docker
+nohup python3 -u dev-socks5.py --host 0.0.0.0 --port 17890 >/tmp/dev-socks5.log 2>&1 &
+```
+
+> In this sandbox `setsid`/`nice` are unavailable and `/tmp/dev-socks5.log` stays empty, so run the stub directly on your macOS host or another machine that can bind 17890 and keep it running while you rerun the check.
+
+Then rerun `cac docker check` and confirm DNS/TCP/HTTP succeed before moving on.
+
+## Diagnostics and telemetry notes
+
+- The ByteDance document highlights three telemetry channels (Datadog, BigQuery, GrowthBook), 40+ environment dimensions, browser-supplied attribution headers, and the native `cch` attestation token that cannot be forged. Docker mode treats those facts as requirements: the `cherny` templates overwrite the `env`, sanitizes the `prompt` block, and strips fields like `baseUrl`/`gateway` so you never expose the proxy provider.
+- Child containers launched through the `docker` wrapper respect `CAC_CHILD_CONTAINER_PROXY_URL` and `CAC_CHILD_CONTAINER_NETWORK_MODE` so their traffic is injected through the same proxy/Hound arrangement, keeping the fail-closed posture intact.
+- Future checks can copy this page to preserve the history of proxy health, identity lookups, and the naming blueprint for repeat audits.

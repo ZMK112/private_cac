@@ -46,7 +46,7 @@ _dk_workspace_host_abs() {
 _dk_workspace_host_current() {
   local container_name source
   container_name=$(_dk_read_env CAC_CONTAINER_NAME)
-  container_name="${container_name:-studio-main}"
+container_name="${container_name:-boris-main}"
   source=$(_dk_host_docker inspect -f '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}' "$container_name" 2>/dev/null || true)
   if [[ -n "$source" ]]; then
     printf '%s\n' "$source"
@@ -343,14 +343,14 @@ _dk_cmd_setup() {
   local docker_dir
   docker_dir=$(_docker_dir)
   mkdir -p "${docker_dir}/data/root" "${docker_dir}/data/home"
-  _dk_write_env CAC_CONTAINER_NAME "studio-main"
-  _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "studio-main"
+  _dk_write_env CAC_CONTAINER_NAME "boris-main"
+  _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "boris-main"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
-  _dk_write_env CAC_DOCKER_PROXY_NAME "engine-gateway"
+  _dk_write_env CAC_DOCKER_PROXY_NAME "boris-gateway"
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
   _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
   _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
-  _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://engine-gateway:2375"
+  _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://boris-gateway:2375"
   if [[ -f "$_dk_env_file" ]]; then
     local cleanup_tmp
     cleanup_tmp=$(mktemp)
@@ -360,7 +360,7 @@ _dk_cmd_setup() {
   _ok "Config saved"
   echo ""
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
-  _info "Container Docker API: \033[1mtcp://engine-gateway:2375\033[0m (via docker-proxy sidecar)"
+  _info "Container Docker API: \033[1mtcp://boris-gateway:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
 }
 

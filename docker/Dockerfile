@@ -65,8 +65,9 @@ ENV PYTHONPATH="/opt/ccimage"
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/cac-check /usr/local/bin/cac-check
 COPY docker/docker-wrapper.sh /usr/local/bin/docker
+COPY docker/templates /usr/local/share/cherny
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker \
     && cp /usr/bin/docker /usr/local/bin/docker-real
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["sleep", "infinity"]
+CMD ["tail", "-f", "/dev/null"]

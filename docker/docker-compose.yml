@@ -4,7 +4,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.socket-proxy
-    container_name: ${CAC_DOCKER_PROXY_NAME:-engine-gateway}
+    container_name: ${CAC_DOCKER_PROXY_NAME:-boris-gateway}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
@@ -14,8 +14,8 @@ services:
 
   cac:
     image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:latest}
-    container_name: ${CAC_CONTAINER_NAME:-studio-main}
-    hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-studio-main}
+    container_name: ${CAC_CONTAINER_NAME:-boris-main}
+    hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-boris-main}
     depends_on:
       - docker-proxy
     privileged: true
@@ -31,8 +31,8 @@ services:
       TUN_MTU: ${TUN_MTU:-9000}
       DISABLE_IPV6: ${DISABLE_IPV6:-1}
       HEALTHCHECK: ${HEALTHCHECK:-1}
-      DOCKER_HOST: ${CAC_CONTAINER_DOCKER_HOST:-tcp://${CAC_DOCKER_PROXY_NAME:-engine-gateway}:2375}
-      CAC_PARENT_CONTAINER_NAME: ${CAC_CONTAINER_NAME:-studio-main}
+      DOCKER_HOST: ${CAC_CONTAINER_DOCKER_HOST:-tcp://${CAC_DOCKER_PROXY_NAME:-boris-gateway}:2375}
+      CAC_PARENT_CONTAINER_NAME: ${CAC_CONTAINER_NAME:-boris-main}
       CAC_SHARED_WORKSPACE: /workspace
       CAC_SHARED_WORKSPACE_HOST: ${CAC_WORKSPACE_HOST:?Set CAC_WORKSPACE_HOST in .env}
       CAC_CHILD_CONTAINER_NETWORK_MODE: ${CAC_CHILD_CONTAINER_NETWORK_MODE:-bridge}

@@ -78,15 +78,16 @@
             "groups": [
               {
                 "group": "Guides",
-                "pages": [
-                  "guides/local-repo-install",
-                  "guides/clone-config",
-                  "guides/macos-host-identity",
-                  "guides/proxy-setup",
-                  "guides/api-key-users",
-                  "guides/docker-mode",
-                  "guides/migrating"
-                ]
+                  "pages": [
+                    "guides/local-repo-install",
+                    "guides/clone-config",
+                    "guides/macos-host-identity",
+                    "guides/proxy-setup",
+                    "guides/api-key-users",
+                    "guides/docker-mode",
+                    "guides/docker-mode-ops",
+                    "guides/migrating"
+                  ]
               }
             ]
           },
@@ -139,15 +140,16 @@
             "groups": [
               {
                 "group": "指南",
-                "pages": [
-                  "zh/guides/local-repo-install",
-                  "zh/guides/clone-config",
-                  "zh/guides/macos-host-identity",
-                  "zh/guides/proxy-setup",
-                  "zh/guides/api-key-users",
-                  "zh/guides/docker-mode",
-                  "zh/guides/migrating"
-                ]
+                  "pages": [
+                    "zh/guides/local-repo-install",
+                    "zh/guides/clone-config",
+                    "zh/guides/macos-host-identity",
+                    "zh/guides/proxy-setup",
+                    "zh/guides/api-key-users",
+                    "zh/guides/docker-mode",
+                    "zh/guides/docker-mode-ops",
+                    "zh/guides/migrating"
+                  ]
               }
             ]
           },
