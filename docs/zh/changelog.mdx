@@ -16,6 +16,7 @@ description: 版本发布历史和重要变更
 - 强化 Docker 模式 persona：主进程默认以非 root 的伪装用户运行，并在 shell / Node.js 视图中保持稳定的 `uid` / `gid` / `home` / `shell` 指纹。
 - 补上 Docker 容器痕迹隐藏：移除 `/.dockerenv` / `/run/.containerenv`，伪装常见 `cgroup` / `mountinfo` 读取，并让 `cac-check` 增加工作区可写性与容器痕迹检查。
 - 调整 `cac docker create` / `cac docker start` 的本地镜像逻辑：当主镜像已存在时不再重复重建，降低验证过程中的外部拉取抖动。
+- 修复本地仓库重装链路：`bash install.sh --local` 现在会自动刷新已有 Docker 栈并应用新安装代码，同时新增 `CAC_DOCKER_REBUILD=1` 用于按需强制重建主镜像。
 
 **验证体系与文档**
 

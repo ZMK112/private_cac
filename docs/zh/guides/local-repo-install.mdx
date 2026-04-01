@@ -49,6 +49,7 @@ bash install.sh
 ```
 
 6. 自动初始化 `~/.cac/`
+7. 如果 `~/.cac/docker/.env` 已存在且当前机器上已有 Docker 栈，会自动用新安装的本地代码刷新该栈
 
 ## macOS 身份确认
 
@@ -102,3 +103,9 @@ cac env ls
 ```
 
 正常情况下你会看到入口是 `~/bin/cac`。
+
+如果你已经在使用 Docker 模式，并且想手动强制重建主镜像，可以执行：
+
+```bash
+CAC_DOCKER_REBUILD=1 cac docker create
+```

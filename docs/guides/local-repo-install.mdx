@@ -49,6 +49,7 @@ In local-repo mode, `install.sh`:
 ```
 
 6. Initializes `~/.cac/`
+7. If `~/.cac/docker/.env` already exists and a Docker stack is present, refreshes that stack with the newly installed local code
 
 ## macOS identity review
 
@@ -102,3 +103,9 @@ cac env ls
 ```
 
 You should see `~/bin/cac` as the entrypoint.
+
+If you already use Docker mode and want to force a main-image rebuild manually, run:
+
+```bash
+CAC_DOCKER_REBUILD=1 cac docker create
+```

@@ -278,7 +278,7 @@ run_check "WS"    "Workspace is not writable by runtime user" check_workspace_wr
 
 echo ""
 printf "\033[1mIdentity\033[0m\n"
-run_check "CAC"   "cac not installed — run: cac setup" check_cac
+run_check "CAC"   "cac profile/runtime missing — restart the Docker stack" check_cac
 run_check "HOST"  "Hostname not spoofed" check_hostname
 run_check "USER"  "User/home persona not spoofed" check_persona
 run_check "PID1"  "Main process still running as root" check_pid1_user

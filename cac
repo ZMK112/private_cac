@@ -2984,6 +2984,10 @@ _dk_can_build_local() {
   [[ -f "${repo_root}/build.sh" ]]
 }
 
+_dk_force_local_rebuild() {
+  [[ "${CAC_DOCKER_REBUILD:-0}" == "1" ]]
+}
+
 _dk_load_env() {
   # shellcheck disable=SC1090  # dynamic env file path
   [[ -f "$_dk_env_file" ]] && set -a && source "$_dk_env_file" && set +a
@@ -3382,7 +3386,10 @@ _dk_cmd_create() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   echo ""
   if _dk_can_build_local; then
-    if _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+    if _dk_force_local_rebuild; then
+      _info "Rebuilding local images..."
+      _dk_compose build
+    elif _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
       _info "Local image already present, refreshing docker-proxy..."
       _dk_compose build docker-proxy
     else
@@ -3406,7 +3413,10 @@ _dk_cmd_start() {
   _dk_load_env
   _info "Starting container..."
   if _dk_can_build_local; then
-    if ! _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+    if _dk_force_local_rebuild; then
+      _info "Rebuilding local images first..."
+      _dk_compose up -d --build
+    elif ! _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
       _info "Local image missing, building first..."
       _dk_compose up -d --build
     else

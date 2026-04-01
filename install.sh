@@ -177,6 +177,68 @@ detect_rc_file() {
     fi
 }
 
+read_kv_file() {
+    local file="$1" key="$2"
+    [[ -f "$file" ]] || return 1
+    grep -m1 "^${key}=" "$file" 2>/dev/null | cut -d= -f2-
+}
+
+docker_cli_available() {
+    command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1
+}
+
+refresh_existing_docker_stack() {
+    [[ "$INSTALL_MODE" == "local" ]] || return 0
+    [[ -e "${CAC_HOME}/docker" ]] || return 0
+
+    local env_file="${CAC_HOME}/docker/.env"
+    [[ -f "$env_file" ]] || return 0
+
+    local proxy_uri
+    proxy_uri="$(read_kv_file "$env_file" PROXY_URI || true)"
+    [[ -n "$proxy_uri" ]] || return 0
+
+    if ! docker_cli_available; then
+        yellow "Skipping Docker refresh: docker is unavailable"
+        return 0
+    fi
+
+    local container_name proxy_name workspace_dir stack_exists
+    container_name="$(read_kv_file "$env_file" CAC_CONTAINER_NAME || true)"
+    proxy_name="$(read_kv_file "$env_file" CAC_DOCKER_PROXY_NAME || true)"
+    container_name="${container_name:-boris-main}"
+    proxy_name="${proxy_name:-boris-gateway}"
+    stack_exists=false
+
+    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$container_name"; then
+        stack_exists=true
+    elif docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$proxy_name"; then
+        stack_exists=true
+    fi
+
+    [[ "$stack_exists" == "true" ]] || return 0
+
+    workspace_dir="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}' "$container_name" 2>/dev/null || true)"
+    [[ -d "$workspace_dir" ]] || workspace_dir="$SCRIPT_DIR"
+
+    cyan "Refreshing existing Docker deployment ..."
+    (
+        cd "$workspace_dir"
+        "${BIN_DIR}/cac" docker stop >/dev/null 2>&1 || true
+        CAC_DOCKER_REBUILD=1 "${BIN_DIR}/cac" docker create >/dev/null
+        "${BIN_DIR}/cac" docker start >/dev/null
+    ) && {
+        green "✓ refreshed Docker deployment"
+        return 0
+    }
+
+    yellow "Docker install completed, but automatic stack refresh failed"
+    yellow "Retry manually from your workspace:"
+    printf '  cd %s\n' "$workspace_dir"
+    printf '  CAC_DOCKER_REBUILD=1 cac docker create && cac docker start\n'
+    return 0
+}
+
 write_identity_files() {
     mkdir -p "$CAC_HOME"
     printf '%s\n' "$IDENTITY_MODEL" > "${CAC_HOME}/host_model"
@@ -404,6 +466,7 @@ main() {
     link_entrypoint
     install_docker_resources
     initialize_cac
+    refresh_existing_docker_stack
     print_completion
 }
 
