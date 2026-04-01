@@ -59,3 +59,34 @@ jobs:
           node --check src/relay.js
           node --check src/fingerprint-hook.js
           echo "✓ All JS files parse successfully"
+
+  validate:
+    name: Full Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Verify Docker availability
+        run: |
+          docker version
+          docker compose version
+          test -e /dev/net/tun
+
+      - name: Run validation suite
+        run: bash scripts/validate.sh --keep-workdir
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: validation-artifacts
+          path: |
+            /tmp/cac-validate-logs.*
+            /tmp/cac-validate-home.*
+            /tmp/cac-validate-worktree.*
+          if-no-files-found: ignore

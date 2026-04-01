@@ -1,0 +1,128 @@
+---
+title: "验证"
+description: "为 cac 提供可重复执行的本地与远程校验流程，覆盖 Docker 模式与网络行为。"
+icon: "flask"
+---
+
+## 本地验证入口
+
+在仓库根目录执行：
+
+```bash
+bash scripts/validate.sh
+```
+
+这个脚本会自动创建临时 worktree、临时 `HOME`、本地 SOCKS5 stub、唯一的 Compose project name，以及唯一的 Docker control subnet，用来验证当前改动，而不会直接复用你平时的 `cac docker` 环境。
+
+## 当前基线
+
+当前本地基线已经可以完整通过：
+
+```bash
+bash scripts/validate.sh --keep-workdir
+```
+
+截至 2026 年 4 月 1 日，最新结果为：`12` 通过 / `0` 失败 / `0` 警告。
+
+## CI
+
+主 CI 流程现在也直接执行：
+
+```bash
+bash scripts/validate.sh --keep-workdir
+```
+
+并上传 `/tmp/cac-validate-*` 作为构建产物。也就是说，本地与 CI 使用的是同一套验证入口和同一套 Docker 校验路径。
+
+## 自动覆盖范围
+
+- `build.sh` 构建产物生成
+- `relay.js` 与 `fingerprint-hook.js` 的 JS 语法校验
+- 隔离 `HOME` 下的 wrapper / auto-init / `cac env create`
+- Docker 镜像构建与本地 bridge 模式启动
+- `cac docker create` / `start` / `status` / `check` / `stop`
+- 主容器内 `cac-check`
+- 子容器通过 sidecar Docker wrapper 的访问能力
+- `cac docker port` 主机端口转发
+- 停掉本地代理 stub 后的 fail-closed 网络校验
+
+## 常用模式
+
+```bash
+# 只跑构建 + CLI 冒烟
+bash scripts/validate.sh --skip-docker
+
+# 保留临时日志和 worktree，便于排查
+bash scripts/validate.sh --keep-workdir
+
+# 指定本地代理 stub 端口与 Docker control subnet
+bash scripts/validate.sh --proxy-port 17910 --subnet 172.28.245.0/24
+```
+
+## 为什么要用临时 worktree
+
+`cmd_docker` 会通过 `command -v cac` 反查 `docker/` 目录。所以如果 `PATH` 里先命中的是别的安装副本，Docker 验证就可能打到错误的资源目录。
+
+验证脚本会显式：
+
+1. 复制仓库到临时 worktree
+2. 把该 worktree 放到 `PATH` 最前面
+3. 指定唯一 `COMPOSE_PROJECT_NAME`
+4. 生成专用的 `docker/.env`
+
+这样可以避免不同仓库副本因为默认 `docker` compose project 名称而互相影响。
+
+## 仍需人工补跑的项目
+
+- 真实 Claude OAuth 登录与交互会话
+- 真实上游代理提供商
+- 远程 Linux `macvlan` 模式
+- Docker Desktop / 宿主 Docker daemon 自身的代理行为
+
+## 失败原因与修复
+
+这轮验证过程中定位并修复了 3 个 Docker 模式关键问题：
+
+1. `docker/entrypoint.sh` 会在 profile 创建后立即退出。
+原因：
+`apply_cherny_identity()` 只正确读到了第一项模板字段，最后又把一个为假的 `[[ -n "$session_alias" ]]` 状态返回给了 `set -e`。
+修复：
+改为用 `mapfile` 读取全部字段，并在函数尾部显式 `return 0`。
+
+2. 本地 `cac docker port` 在 Docker Desktop 模式下不稳定。
+原因：
+旧实现依赖宿主机直接连容器 bridge IP，这条路径在 Docker Desktop 上并不可靠。
+修复：
+本地模式改成创建 helper container，在 compose 网络内转发到主容器，并把 `127.0.0.1:<port>` 正式 publish 到宿主机。
+
+3. `cac docker check` 可能在完整输出前就中断。
+原因：
+当前环境里，长时间网络探测通过附着式 `docker exec` 路径不稳定。
+修复：
+现在改为在容器内后台执行 `cac-check`，等待结果文件，再统一回读输出与退出码。
+
+## 验证脚手架中的额外问题
+
+在搭建验证体系时，还遇到了两个基础设施层问题：
+
+- 不同仓库副本会因为 compose 文件都位于 `docker/` 目录而共享默认 project 名称，彼此冲突。现在验证脚本始终使用唯一 `COMPOSE_PROJECT_NAME`。
+- 并行运行多个 Docker 验证栈时，bridge subnet 可能冲突。现在验证脚本会先探测可用 control subnet，再写入临时 `docker/.env`。
+- `docker/templates/` 其实已经是运行时依赖，但之前容易被当成本地临时文件。现在模板缺失或 JSON 非法时，验证脚本会立即失败。
+
+## 远程/macvlan 验证清单
+
+在原生 Linux Docker 主机上，还需要额外执行以下校验：
+
+1. 确认 `docker/.env` 中存在 `DEPLOY_MODE=remote`、`HOST_INTERFACE`、`MACVLAN_SUBNET`、`MACVLAN_GATEWAY`、`MACVLAN_IP`、`SHIM_IP`。
+2. 执行 `cac docker create && cac docker start`。
+3. 检查 host shim：
+
+```bash
+ip link show cac-docker-shim
+ip route get "$(grep '^MACVLAN_IP=' docker/.env | cut -d= -f2)"
+```
+
+4. 执行 `cac docker check`，确认 `TUN`、`DNS`、`LEAK`、`TCP`、`HTTP`、`EXIT`、`GEO`、`CAC`、`HOST` 全部通过。
+5. 对容器内真实服务执行 `cac docker port <port>` 校验。
+6. 停掉上游代理，确认主容器 fail-closed，而不是回退到宿主直连。
+7. 恢复代理后执行 `cac docker restart`，确认容器恢复。

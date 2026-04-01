@@ -1,6 +1,6 @@
 ---
 title: "Docker mode ops log"
-description: "Documented results for the Docker-mode build, start, and check workflow plus the canonical naming blueprint."
+description: "Documented results for the Docker-mode build, start, check, and fix workflow."
 icon: "shield-check"
 ---
 
@@ -27,31 +27,50 @@ The canonical identity templates also freeze `TZ=Asia/Tokyo`, `LANG=ja_JP.UTF-8`
 
 ## Check results
 
-```text
-Network
-[TUN  ] ok   tun0 up (1ms)
-[DNS  ] FAIL DNS resolution failed — check DNS_SERVER
-[LEAK ] ok   DNS → 172.19.0.2 (TUN gateway, no leak) (5ms)
-```
-
-The run was killed (exit 137) right after the DNS failure, so the later TCP/HTTP/identity checks never printed.
-
-`cac docker check` currently stops after DNS cannot reach the upstream resolver and then the run is killed (exit 137). The `sing-box` tunnel repeatedly logs:
-
-```
-dns: exchange failed ... dial tcp 192.168.65.254:17890: connect: connection refused
-```
-
-This happens because the local SOCKS5 proxy on `host.docker.internal:17890` was not accepting connections inside this sandbox. To fix it, start a host proxy before rerunning the check:
+The current local validation baseline now completes successfully with:
 
 ```bash
-cd docker
-nohup python3 -u dev-socks5.py --host 0.0.0.0 --port 17890 >/tmp/dev-socks5.log 2>&1 &
+bash scripts/validate.sh --keep-workdir
 ```
 
-> In this sandbox `setsid`/`nice` are unavailable and `/tmp/dev-socks5.log` stays empty, so run the stub directly on your macOS host or another machine that can bind 17890 and keep it running while you rerun the check.
+Latest recorded result on April 1, 2026:
 
-Then rerun `cac docker check` and confirm DNS/TCP/HTTP succeed before moving on.
+```text
+passes:   12
+failures: 0
+warnings: 0
+```
+
+The Docker-mode validation now covers:
+
+- `cac docker create`
+- `cac docker start`
+- `cac docker status`
+- `cac docker check`
+- child-container Docker wrapper behavior
+- `cac docker port`
+- fail-closed behavior after upstream proxy loss
+
+## Root causes fixed during validation
+
+1. `apply_cherny_identity()` in `docker/entrypoint.sh` returned a failure status under `set -e`, which caused the main container to restart immediately after profile creation.
+2. Local `cac docker port` forwarding relied on host access to the container bridge IP, which is not reliable on Docker Desktop.
+3. `cac docker check` was vulnerable to attached exec instability for long-running network probes.
+
+The current implementation fixes these by:
+
+- using `mapfile` plus explicit success return in `apply_cherny_identity()`
+- using a helper container to publish localhost ports in local mode
+- running `cac-check` asynchronously inside the container and then collecting its output
+
+## Validation harness lessons
+
+Two non-product issues also surfaced while building the repeatable validation flow:
+
+1. Temporary repo copies collided on the default Compose project name because the compose files live under `docker/`.
+2. Validation stacks could collide on the Docker bridge subnet.
+
+The current validation script handles both by forcing a unique `COMPOSE_PROJECT_NAME` and probing for a free control subnet before starting the stack.
 
 ## Diagnostics and telemetry notes
 

@@ -1,0 +1,10 @@
+rules:
+  - DOMAIN,gateway.localhost,DIRECT
+  - DOMAIN-SUFFIX,anthropic.com,REJECT
+  - DOMAIN-SUFFIX,claude.ai,REJECT
+  - DOMAIN-SUFFIX,claude.com,REJECT
+  - DOMAIN-SUFFIX,datadoghq.com,REJECT
+  - DOMAIN-SUFFIX,platform.claude.com,REJECT
+  - DOMAIN-SUFFIX,litellm.net,REJECT
+  - DOMAIN-SUFFIX,helicone.ai,REJECT
+  - DOMAIN-SUFFIX,cloudflare.com,REJECT

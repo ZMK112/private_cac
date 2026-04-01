@@ -1,0 +1,7 @@
+{
+  "platform": "linux",
+  "shell": "bash",
+  "os_version": "Debian 12",
+  "working_directory": "/workspace",
+  "home_prefix": "/home/cherny"
+}

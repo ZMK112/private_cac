@@ -105,6 +105,8 @@ Docker mode mirrors the three-layer architecture that projects like CC Gateway a
 - **Environment normalization.** The `cherny.env.json` snapshot pins `TZ=Asia/Tokyo`, `LANG=ja_JP.UTF-8`, and JavaScript `process.env` values (platform, arch, runtimes) that Claude Code would otherwise leak in its `env` block.
 - **Prompt and telemetry sanitization.** As noted in the bytedance leak report, Claude Code injects `<env>` metadata into every system prompt and ships it to Datadog / GrowthBook. Our copy of the `cherny.prompt.json` template rewrites those fields to match the canonical profile, and the `cherny.telemetry.json` payload masks constrainedMemory/RSS so vendor-side heuristics see only the allowed values.
 
+These `docker/templates/cherny.*` files are part of the source tree and should be committed like code, not treated as local-only scratch assets.
+
 Coupled with the docker wrapper that injects `CAC_CHILD_CONTAINER_PROXY_URL` and `NO_PROXY` into every Claude-launched container, the main TUN tunnel replicates the CC Gateway defense-in-depth idea: if a proxy dies, `cac docker check` starts failing on DNS/TCP/HTTP instead of silently switching back to the host network.
 
 ## Operational checklist

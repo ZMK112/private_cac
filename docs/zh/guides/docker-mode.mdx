@@ -97,6 +97,8 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 - 如果主代理中断，主容器预期是 fail-closed：`cac docker check` 的 DNS/TCP/HTTP 检查会失败，而不是静默回退到宿主默认出口
 - 在本地 SOCKS5 测试里，更关键的 fail-closed 信号是代理停掉后 `HTTP` 和 `EXIT` 失败，且不会暴露新的直连出口 IP
 
+这些 `docker/templates/cherny.*` 文件属于 Docker 模式的源代码资产，应该和代码一起提交，而不是只留在本地工作区。
+
 重要说明：
 
 - 这一模式下，主 `cac` 容器仍然是隔离最强的一层

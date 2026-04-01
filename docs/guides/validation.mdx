@@ -1,0 +1,122 @@
+---
+title: "Validation"
+description: "Repeatable local and remote validation for cac, with Docker-mode coverage and network checks."
+icon: "flask"
+---
+
+## Local validation entrypoint
+
+Run the repo-local validation script from the project root:
+
+```bash
+bash scripts/validate.sh
+```
+
+This is the fastest way to validate current changes before pushing. The script creates its own temp worktree, temp `HOME`, local SOCKS5 stub, unique Compose project name, and unique Docker control subnet so it does not interfere with your normal `cac docker` environment.
+
+## Current baseline
+
+The current local baseline passes end-to-end:
+
+```bash
+bash scripts/validate.sh --keep-workdir
+```
+
+Latest recorded result on April 1, 2026: `12` pass / `0` fail / `0` warn.
+
+## CI
+
+The main CI workflow now runs:
+
+```bash
+bash scripts/validate.sh --keep-workdir
+```
+
+and uploads `/tmp/cac-validate-*` as build artifacts. Local and CI validation therefore use the same entrypoint and the same Docker-mode coverage.
+
+## What it validates
+
+### Automated
+
+- `build.sh` output generation
+- JS syntax for `relay.js` and `fingerprint-hook.js`
+- Wrapper/bootstrap behavior in an isolated `HOME`
+- `cac env create` against a preseeded fake Claude version
+- Docker image build and local bridge-mode startup
+- `cac docker create`, `start`, `status`, `check`, and `stop`
+- `cac-check` execution inside the main container
+- Child Docker wrapper behavior through the sidecar
+- Host port forwarding via `cac docker port`
+- Fail-closed behavior after the local proxy stub is stopped
+
+### Manual
+
+- Real Claude login and interactive sessions
+- Real upstream proxy providers
+- Remote Linux `macvlan` mode
+- Docker daemon proxy behavior outside the main `cac` container
+
+## Failure history and fixes
+
+Recent validation runs identified and fixed three Docker-mode regressions:
+
+1. The container entrypoint exited immediately after creating the profile because `apply_cherny_identity()` returned `1` under `set -e`. The helper now uses `mapfile` and explicitly returns success.
+2. Local `cac docker port` forwarding was implemented with a host-side relay to the container bridge IP. That is not reliable on Docker Desktop, so local mode now uses a helper container with a published localhost port.
+3. `cac docker check` could abort before the full check output was collected. The command now runs `cac-check` inside the container in the background and then reads back the captured output and status.
+
+## Validation harness notes
+
+During validation development, two infrastructure issues also appeared:
+
+- Different repo copies collided on the default Compose project namespace because the compose files live under `docker/`. The validation script now always uses a unique `COMPOSE_PROJECT_NAME`.
+- Parallel Docker validation stacks could hit bridge-subnet overlap. The validation script now probes for a free control subnet before writing its temporary `docker/.env`.
+- `docker/templates/` was already a runtime dependency but was easy to mis-handle as local scratch data. Validation now fails immediately if the required template files are missing or invalid.
+
+## Useful modes
+
+```bash
+# Build + CLI only
+bash scripts/validate.sh --skip-docker
+
+# Keep temp logs and workdirs for debugging
+bash scripts/validate.sh --keep-workdir
+
+# Override the local SOCKS5 stub port and Docker control subnet
+bash scripts/validate.sh --proxy-port 17910 --subnet 172.28.245.0/24
+```
+
+## Why the script uses a temp worktree
+
+`cmd_docker` discovers the Docker resources from `command -v cac`. That means the repo under test must resolve first in `PATH`, otherwise Docker operations may accidentally target another installed copy.
+
+The validation script therefore:
+
+1. Copies the repo to a temp worktree
+2. Prepends that temp worktree to `PATH`
+3. Uses a unique `COMPOSE_PROJECT_NAME`
+4. Writes a validation-only `docker/.env`
+
+This prevents collisions with the default Compose project name that would otherwise come from the shared `docker/` directory name.
+
+## Remote/macvlan checklist
+
+For native Linux Docker hosts, local bridge-mode smoke tests are not enough. Run this additional checklist:
+
+1. Confirm `docker/.env` contains `DEPLOY_MODE=remote`, `HOST_INTERFACE`, `MACVLAN_SUBNET`, `MACVLAN_GATEWAY`, `MACVLAN_IP`, and `SHIM_IP`.
+2. Run `cac docker create && cac docker start`.
+3. Verify the host shim exists:
+
+```bash
+ip link show cac-docker-shim
+ip route get "$(grep '^MACVLAN_IP=' docker/.env | cut -d= -f2)"
+```
+
+4. Run `cac docker check` and confirm every line passes: `TUN`, `DNS`, `LEAK`, `TCP`, `HTTP`, `EXIT`, `GEO`, `CAC`, and `HOST`.
+5. Validate `cac docker port <port>` against a live service in the main container.
+6. Stop the upstream proxy and confirm the main container fails closed instead of falling back to direct host egress.
+7. Restore the proxy and confirm recovery after `cac docker restart`.
+
+## Related docs
+
+- [Docker mode](/guides/docker-mode)
+- [Docker mode ops log](/guides/docker-mode-ops)

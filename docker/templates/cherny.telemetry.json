@@ -1,0 +1,7 @@
+{
+  "constrainedMemory": 8192,
+  "heapTotal": 256,
+  "heapUsed": 128,
+  "rss": 384,
+  "max_rss": 768
+}
