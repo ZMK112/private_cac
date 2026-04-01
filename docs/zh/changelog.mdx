@@ -26,6 +26,10 @@ description: 版本发布历史和重要变更
 - 调整 `cac docker start` 和 `cac docker rebuild`：只有在主容器完成初始化且 PID 1 已真实降权到运行用户后，才会报告成功。
 - 收紧 `bash install.sh --local` 的 Docker 自动刷新条件：现在只会刷新已在运行中的旧栈；对于尚未在当前机器重新配置好的 Docker 模式，不再自动 `create/start`。
 - 为 `cac docker start` / `cac docker rebuild` 的就绪等待补充显式进度提示，便于区分当前是在等待容器状态、容器内 Docker API，还是等待 PID 1 完成降权。
+- 更新主容器内置的 Docker CLI，兼容宿主较新的 Docker daemon，避免 Debian 自带旧版 `docker.io` 客户端因 API 版本过低而无法与宿主通信。
+- 当 Docker 启动等待超时时，`cac docker start` / `cac docker rebuild` 现在会自动停掉栈，而不是留下半启动状态的容器。
+- 为 `cac docker create` / `cac docker start` 增加 Docker API 兼容性预检：如果宿主 daemon 的最低 API 版本高于镜像内置 Docker CLI 的 API 版本，现在会直接明确报错，而不是在就绪阶段静默卡住。
+- Docker 模式现在默认使用固定镜像 tag，不再落到 `latest`；`setup` 会把精确镜像引用写入 `.env`，并拒绝 `:latest` 或无 tag / 无 digest 的可变 `CAC_DOCKER_IMAGE` 配置。
 
 **验证体系与文档**
 

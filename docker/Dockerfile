@@ -4,10 +4,15 @@ FROM node:${NODE_TAG}
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG SINGBOX_VERSION=1.12.14
+ARG DOCKER_CLI_VERSION=29.0.1
+ARG DOCKER_CLI_API_VERSION=1.52
 ARG BUILD_PROXY
 ARG CAC_FAKE_USER=cherny
 ARG CAC_FAKE_UID=1001
 ARG CAC_FAKE_GID=1001
+
+LABEL cac.docker_cli_version="${DOCKER_CLI_VERSION}" \
+      cac.docker_cli_api_version="${DOCKER_CLI_API_VERSION}"
 
 # System packages + uv + sing-box
 # BUILD_PROXY: only used for curl (uv, sing-box, claude install).
@@ -29,10 +34,14 @@ RUN set -eux; \
     && ln -sf /usr/local/uv /usr/local/bin/uv \
     && ln -sf /usr/local/uvx /usr/local/bin/uvx \
     && ARCH="$(dpkg --print-architecture)" \
-    && case "$ARCH" in amd64) SB_ARCH=amd64;; arm64) SB_ARCH=arm64;; *) echo "unsupported: $ARCH" >&2; exit 1;; esac \
+    && case "$ARCH" in amd64) SB_ARCH=amd64; DOCKER_ARCH=x86_64;; arm64) SB_ARCH=arm64; DOCKER_ARCH=aarch64;; *) echo "unsupported: $ARCH" >&2; exit 1;; esac \
     && $CURL -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/sing-box-${SINGBOX_VERSION}-linux-${SB_ARCH}.tar.gz" \
        | tar xzO "sing-box-${SINGBOX_VERSION}-linux-${SB_ARCH}/sing-box" > /usr/local/bin/sing-box \
-    && chmod +x /usr/local/bin/sing-box
+    && chmod +x /usr/local/bin/sing-box \
+    && $CURL -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" \
+       | tar xzO docker/docker > /usr/local/bin/docker-real \
+    && chmod +x /usr/local/bin/docker-real \
+    && /usr/local/bin/docker-real --version | grep -F "Docker version ${DOCKER_CLI_VERSION}" >/dev/null
 
 RUN set -eux; \
     getent group "${CAC_FAKE_GID}" >/dev/null || groupadd -g "${CAC_FAKE_GID}" "${CAC_FAKE_USER}"; \
@@ -92,8 +101,7 @@ COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/cac-check /usr/local/bin/cac-check
 COPY docker/docker-wrapper.sh /usr/local/bin/docker
 COPY docker/templates /usr/local/share/cherny
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker \
-    && cp /usr/bin/docker /usr/local/bin/docker-real
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["tail", "-f", "/dev/null"]

@@ -113,7 +113,7 @@ Coupled with the docker wrapper that injects `CAC_CHILD_CONTAINER_PROXY_URL` and
 
 Repeatable validation steps live in the [Docker mode ops log](/guides/docker-mode-ops). The checklist records:
 
-1. Building and synchronizing the `ghcr.io/nmhjklnm/cac-docker:latest` image with Boris-derived templates.
+1. Building and synchronizing the pinned `CAC_DOCKER_IMAGE` reference from `.env` with Boris-derived templates. By default, Docker mode now writes a release-tagged image such as `ghcr.io/nmhjklnm/cac-docker:v1.4.4-zmk.11` instead of using `latest`.
 2. Starting `boris-main` and the `boris-gateway` sidecar so the workspace mapping and Docker proxy stay consistent.
 3. Running `cac docker check` to ensure `tun0` is up, DNS/TCP/HTTP probes behave as expected, and the spoofed hostname is active.
 

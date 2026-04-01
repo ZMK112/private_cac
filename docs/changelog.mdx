@@ -26,6 +26,10 @@ All notable changes to this project are documented here. Each entry links to the
 - Updated `cac docker start` and `cac docker rebuild` so they only report success after the main container has finished initialization and PID 1 has actually dropped to the runtime user.
 - Tightened `bash install.sh --local` Docker auto-refresh: it now only refreshes an already running stack, and skips automatic startup on machines where Docker mode has not been reconfigured yet.
 - Added explicit progress messages during `cac docker start` / `cac docker rebuild` readiness waits so it is clear whether startup is waiting on the container state, the in-container Docker API, or PID 1 privilege drop.
+- Updated the Docker CLI bundled inside the main container so it can talk to newer host Docker daemons whose minimum API version is higher than Debian's old `docker.io` client supports.
+- When Docker startup readiness times out, `cac docker start` / `cac docker rebuild` now stop the stack automatically instead of leaving a half-started container behind.
+- Added a Docker API compatibility preflight before `cac docker create` / `cac docker start`: if the host daemon's minimum API version is newer than the Docker CLI bundled in the image, startup now fails fast with a clear error instead of hanging in readiness.
+- Docker mode now defaults to a pinned image tag instead of `latest`, writes that exact image reference into `.env` during setup, and rejects mutable `CAC_DOCKER_IMAGE` values such as `:latest` or tagless refs.
 
 **Validation and docs**
 

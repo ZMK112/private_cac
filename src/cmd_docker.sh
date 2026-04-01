@@ -40,11 +40,92 @@ _dk_compose_base=()
 _dk_service="cac"
 _dk_shim_if="cac-docker-shim"
 _dk_port_dir="/tmp/cac-docker-ports"
-_dk_image="ghcr.io/nmhjklnm/cac-docker:latest"
+_dk_image="${CAC_DOCKER_IMAGE_REPO}:${CAC_DOCKER_IMAGE_TAG}"
 _dk_build_file="docker-compose.build.yml"
 
 _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
+}
+
+_dk_default_image_ref() {
+  printf '%s\n' "${CAC_DOCKER_IMAGE_REPO}:${CAC_DOCKER_IMAGE_TAG}"
+}
+
+_dk_is_pinned_image_ref() {
+  local image="$1" tail tag
+  [[ -n "$image" ]] || return 1
+  [[ "$image" == *@sha256:* ]] && return 0
+  tail="${image##*/}"
+  [[ "$tail" == *:* ]] || return 1
+  tag="${tail##*:}"
+  [[ -n "$tag" && "$tag" != "latest" ]]
+}
+
+_dk_resolve_image_ref() {
+  local image
+  image="${CAC_DOCKER_IMAGE:-$(_dk_read_env CAC_DOCKER_IMAGE)}"
+  if [[ -n "$image" ]]; then
+    printf '%s\n' "$image"
+  else
+    _dk_default_image_ref
+  fi
+}
+
+_dk_refresh_image_ref() {
+  _dk_image="$(_dk_resolve_image_ref)"
+}
+
+_dk_assert_pinned_image_ref() {
+  local image="$1"
+  if ! _dk_is_pinned_image_ref "$image"; then
+    _err "Docker image reference must be pinned to an exact tag or digest"
+    _err "Rejecting mutable image ref: $image"
+    _err "Use ${CAC_DOCKER_IMAGE_REPO}:${CAC_DOCKER_IMAGE_TAG} or ${CAC_DOCKER_IMAGE_REPO}@sha256:<digest>"
+    return 1
+  fi
+}
+
+_dk_api_version_ge() {
+  local left="$1" right="$2"
+  python3 - "$left" "$right" <<'PY'
+import sys
+
+def norm(v: str):
+    parts = [int(p or 0) for p in v.strip().split(".")]
+    while len(parts) < 3:
+        parts.append(0)
+    return tuple(parts[:3])
+
+print("1" if norm(sys.argv[1]) >= norm(sys.argv[2]) else "0")
+PY
+}
+
+_dk_image_docker_client_api() {
+  local api
+  api="$(
+    _dk_host_docker run --rm --entrypoint /usr/local/bin/docker-real "$_dk_image" version --format '{{.Client.APIVersion}}' 2>/dev/null |
+      head -n1 | tr -d '\r\n'
+  )"
+  [[ -n "$api" ]] && printf '%s\n' "$api"
+}
+
+_dk_assert_docker_cli_compat() {
+  local host_min_api client_api
+  _dk_assert_pinned_image_ref "$_dk_image" || return 1
+  host_min_api="$(_dk_host_docker version --format '{{.Server.MinAPIVersion}}' 2>/dev/null | tr -d '\r\n')"
+  client_api="$(_dk_image_docker_client_api || true)"
+
+  [[ -n "$host_min_api" ]] || return 0
+  [[ -n "$client_api" ]] || {
+    _warn "Could not determine the bundled Docker CLI API version for $_dk_image"
+    return 0
+  }
+
+  if [[ "$(_dk_api_version_ge "$client_api" "$host_min_api")" != "1" ]]; then
+    _err "Bundled Docker CLI API $client_api is older than host Docker's minimum API $host_min_api"
+    _err "Update cac or rebuild the Docker image with a newer Docker CLI before starting Docker mode"
+    return 1
+  fi
 }
 
 _dk_host_docker_socket() {
@@ -87,6 +168,7 @@ _dk_init() {
   fi
   _dk_env_file="${docker_dir}/.env"
   _dk_compose_base=(-f "${docker_dir}/docker-compose.yml")
+  _dk_refresh_image_ref
 }
 
 _dk_can_build_local() {
@@ -329,6 +411,12 @@ _dk_wait_runtime_ready() {
     sleep 1
   done
   return 1
+}
+
+_dk_abort_startup() {
+  _warn "Startup readiness timed out; stopping the Docker stack to avoid a half-started state"
+  _dk_compose down >/dev/null 2>&1 || true
+  _dk_shim_down >/dev/null 2>&1 || true
 }
 
 _dk_detect_network() {
@@ -598,7 +686,7 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy
+  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref
   proxy=$(_dk_prompt_value "Proxy URI (SOCKS5 compact host:port or explicit http:// / socks5h://)" "$(_dk_read_env PROXY_URI)" 1) || return 1
 
   detected_mode=$(_dk_detect_mode)
@@ -643,6 +731,17 @@ _dk_cmd_setup() {
   runtime_hostname="${runtime_hostname:-$container_name}"
   gateway_name="${CAC_DOCKER_PROXY_NAME:-$(_dk_read_env CAC_DOCKER_PROXY_NAME)}"
   gateway_name="${gateway_name:-boris-gateway}"
+  image_ref="${CAC_DOCKER_IMAGE:-$(_dk_read_env CAC_DOCKER_IMAGE)}"
+  if [[ -z "$image_ref" ]]; then
+    image_ref="$(_dk_default_image_ref)"
+  elif ! _dk_is_pinned_image_ref "$image_ref"; then
+    if [[ -n "${CAC_DOCKER_IMAGE:-}" ]]; then
+      _err "CAC_DOCKER_IMAGE must be pinned to an exact tag or digest, not '$image_ref'"
+      return 1
+    fi
+    _warn "Replacing mutable Docker image ref '$image_ref' with pinned default '$(_dk_default_image_ref)'"
+    image_ref="$(_dk_default_image_ref)"
+  fi
   derived_child_proxy="$(_dk_guess_child_proxy_url "$mode" "$proxy")"
   child_proxy="${derived_child_proxy:-${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}}"
   child_no_proxy="${CAC_CHILD_CONTAINER_NO_PROXY:-$(_dk_read_env CAC_CHILD_CONTAINER_NO_PROXY)}"
@@ -658,6 +757,7 @@ _dk_cmd_setup() {
   _dk_write_env CAC_DATA "$data_dir"
   _dk_write_env CAC_CONTAINER_NAME "$container_name"
   _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "$runtime_hostname"
+  _dk_write_env CAC_DOCKER_IMAGE "$image_ref"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
   _dk_write_env CAC_DOCKER_PROXY_NAME "$gateway_name"
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
@@ -677,6 +777,7 @@ _dk_cmd_setup() {
   _info "Proxy: \033[1m${proxy}\033[0m"
   _info "Mode: \033[1m${mode}\033[0m"
   _info "Data dir: \033[1m${data_dir}\033[0m"
+  _info "Image: \033[1m${image_ref}\033[0m"
   _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
   [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m${child_proxy}\033[0m"
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
@@ -706,6 +807,7 @@ _dk_cmd_create() {
     _dk_host_docker pull "$_dk_image"
   fi
   echo ""
+  _dk_assert_docker_cli_compat || return 1
   _ok "Image ready"
   _info "Start with: \033[1mcac docker start\033[0m"
 }
@@ -714,6 +816,7 @@ _dk_cmd_start() {
   _dk_init || return 1
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
+  _dk_assert_docker_cli_compat || return 1
   _info "Starting container..."
   if _dk_can_build_local; then
     if _dk_force_local_rebuild; then
@@ -741,6 +844,7 @@ _dk_cmd_start() {
   else
     state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
     _err "Container state: $state"
+    _dk_abort_startup
     _info "Logs: cac docker logs"
     return 1
   fi
@@ -776,6 +880,7 @@ _dk_cmd_rebuild() {
       _info "Next: \033[1mcac docker check\033[0m"
     else
       _err "Container did not finish initialization after rebuild"
+      _dk_abort_startup
       _info "Logs: \033[1mcac docker logs\033[0m"
       return 1
     fi

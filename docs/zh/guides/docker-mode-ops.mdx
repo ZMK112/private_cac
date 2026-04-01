@@ -17,7 +17,7 @@ Docker 模式统一使用 `boris-` 前缀来替代 `cac`，所以主容器叫 `b
 ./cac docker start
 ```
 
-结果是本地镜像和代理镜像都构建完成，`boris-gateway` 与 `boris-main` 成功运行，`/workspace` 绑到宿主当前目录。
+结果是 `.env` 中固定的 `CAC_DOCKER_IMAGE` 镜像引用会被构建并使用（例如 `ghcr.io/nmhjklnm/cac-docker:v1.4.4-zmk.11`），同时代理镜像也会构建完成，`boris-gateway` 与 `boris-main` 成功运行，`/workspace` 绑到宿主当前目录。
 
 ## 检查结果
 

@@ -13,7 +13,7 @@ services:
     restart: unless-stopped
 
   cac:
-    image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:latest}
+    image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:v1.4.4-zmk.11}
     container_name: ${CAC_CONTAINER_NAME:-boris-main}
     hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-boris-main}
     depends_on:
