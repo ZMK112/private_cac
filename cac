@@ -2912,17 +2912,25 @@ _ok()    { printf '\033[32m✓\033[0m %b\n' "$*"; }
 _warn()  { printf '\033[33m!\033[0m %b\n' "$*"; }
 _err()   { printf '\033[31m✗\033[0m %b\n' "$*" >&2; }
 
-_docker_dir() {
-  # Find docker/ relative to the cac script location
-  local script_path
-  script_path="$(command -v cac 2>/dev/null || echo "$0")"
-  script_path="$(cd "$(dirname "$script_path")" && pwd)"
+_dk_script_dir() {
+  local ref target
+  ref="${BASH_SOURCE[0]:-$0}"
+  [[ "$ref" == /* ]] || ref="$(pwd)/$ref"
+  while [[ -L "$ref" ]]; do
+    target="$(readlink "$ref")" || break
+    [[ "$target" == /* ]] || target="$(cd "$(dirname "$ref")" && pwd -P)/$target"
+    ref="$target"
+  done
+  (cd "$(dirname "$ref")" && pwd -P)
+}
 
-  # Check common locations
+_docker_dir() {
+  local script_dir
+  script_dir="$(_dk_script_dir)"
+
   for d in \
-    "$script_path/docker" \
-    "$script_path/../docker" \
-    "$PWD/docker" \
+    "$script_dir/docker" \
+    "$script_dir/../docker" \
     "$HOME/.cac/docker"
   do
     if [[ -d "$d" && -f "$d/docker-compose.yml" ]]; then
@@ -3083,6 +3091,37 @@ _dk_guess_child_proxy_url() {
     host="host.docker.internal"
   fi
   printf '%s://%s:%s\n' "$scheme" "$host" "$port"
+}
+
+_dk_normalize_proxy_uri() {
+  local mode="$1" raw="$2" scheme="" rest="" auth="" target=""
+  [[ "$mode" == "local" ]] || { printf '%s\n' "$raw"; return 0; }
+  [[ -n "$raw" ]] || return 0
+
+  case "$raw" in
+    127.0.0.1:*|localhost:*)
+      printf 'host.docker.internal:%s\n' "${raw#*:}"
+      return 0
+      ;;
+    *://*)
+      scheme="${raw%%://*}"
+      rest="${raw#*://}"
+      if [[ "$rest" == *"@"* ]]; then
+        auth="${rest%%@*}@"
+        target="${rest#*@}"
+      else
+        target="$rest"
+      fi
+      case "$target" in
+        127.0.0.1:*|localhost:*)
+          printf '%s://%shost.docker.internal:%s\n' "$scheme" "$auth" "${target#*:}"
+          return 0
+          ;;
+      esac
+      ;;
+  esac
+
+  printf '%s\n' "$raw"
 }
 
 _dk_default_child_no_proxy() {
@@ -3404,10 +3443,18 @@ _dk_cmd_setup() {
 
   local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy
   proxy=$(_dk_prompt_value "Proxy URI (e.g. ss://..., ip:port:user:pass)" "$(_dk_read_env PROXY_URI)" 1) || return 1
-  _dk_write_env PROXY_URI "$proxy"
 
   detected_mode=$(_dk_detect_mode)
   mode="$detected_mode"
+  proxy="$(_dk_normalize_proxy_uri "$mode" "$proxy")"
+  if [[ "$proxy" != "$(_dk_read_env PROXY_URI)" ]]; then
+    case "$proxy" in
+      host.docker.internal:*|*://*host.docker.internal:*)
+        _info "Local Docker mode detected, using \033[1m${proxy}\033[0m for host-side proxy access"
+        ;;
+    esac
+  fi
+  _dk_write_env PROXY_URI "$proxy"
   _dk_write_env DEPLOY_MODE "$mode"
 
   echo ""
