@@ -9,6 +9,7 @@ Use this workflow when:
 - You synced this repo to another server
 - You made local changes and need those exact changes installed
 - You want one script to build, review host identity values, install, and initialize
+- You extracted a GitHub release/source archive and want that archive to install without downloading from the network
 
 ## One-command install
 
@@ -19,6 +20,7 @@ bash install.sh
 ```
 
 The installer now prefers the current local repo automatically when it detects a valid checkout.
+That includes a plain source archive extracted from a tag or release page, even if generated top-level files like `relay.js` are not committed in the archive.
 
 ## What the installer does
 
@@ -109,3 +111,5 @@ If you already use Docker mode and want to force a main-image rebuild manually, 
 ```bash
 CAC_DOCKER_REBUILD=1 cac docker create
 ```
+
+If you want a self-contained release package instead of the GitHub source archive, use the uploaded `cac-portable-<version>.zip` asset from the release page.

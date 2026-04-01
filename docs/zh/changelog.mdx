@@ -17,6 +17,7 @@ description: 版本发布历史和重要变更
 - 补上 Docker 容器痕迹隐藏：移除 `/.dockerenv` / `/run/.containerenv`，伪装常见 `cgroup` / `mountinfo` 读取，并让 `cac-check` 增加工作区可写性与容器痕迹检查。
 - 调整 `cac docker create` / `cac docker start` 的本地镜像逻辑：当主镜像已存在时不再重复重建，降低验证过程中的外部拉取抖动。
 - 修复本地仓库重装链路：`bash install.sh --local` 现在会自动刷新已有 Docker 栈并应用新安装代码，同时新增 `CAC_DOCKER_REBUILD=1` 用于按需强制重建主镜像。
+- 修复 release / source archive 安装链路：`install.sh` 现在会把解压后的源码包识别为本地仓库，即使缺少未提交的顶层生成文件也不会误回退到 remote 模式；同时补充带版本号的 portable release 安装包。
 
 **验证体系与文档**
 

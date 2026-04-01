@@ -17,6 +17,7 @@ All notable changes to this project are documented here. Each entry links to the
 - Added local container-trace masking for Docker mode: removes `/.dockerenv`/`/run/.containerenv`, sanitizes common `cgroup`/`mountinfo` reads, and extends `cac-check` to validate workspace writability plus hidden container markers.
 - Made `cac docker create` / `cac docker start` more validation-friendly by avoiding unnecessary main-image rebuilds when the local image already exists.
 - Fixed local-repo reinstall flow so `bash install.sh --local` now refreshes an existing Docker stack with the newly installed code, and added `CAC_DOCKER_REBUILD=1` to force a main-image rebuild when needed.
+- Fixed release/source-archive installs so `install.sh` now recognizes an extracted source archive as a valid local checkout even when generated top-level runtime files are absent, and added a versioned portable release package asset.
 
 **Validation and docs**
 

@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUT_DIR="${OUT_DIR:-${ROOT_DIR}/dist}"
-PKG_NAME="cac-portable-latest"
+PKG_VERSION="${PKG_VERSION:-$(git -C "${ROOT_DIR}" describe --tags --always)}"
+PKG_NAME="${PKG_NAME:-cac-portable-${PKG_VERSION}}"
 TMP_DIR="$(mktemp -d)"
 PKG_ROOT="${TMP_DIR}/${PKG_NAME}"
 ZIP_PATH="${OUT_DIR}/${PKG_NAME}.zip"
@@ -29,6 +30,8 @@ rsync -a \
     --exclude '.cac-dist/' \
     --exclude 'dist/' \
     --exclude 'release/' \
+    --exclude 'docker/.env' \
+    --exclude 'docker/data/' \
     --exclude '.DS_Store' \
     "${ROOT_DIR}/" "${PKG_ROOT}/"
 

@@ -2,7 +2,7 @@
 # install.sh — cac installer
 set -euo pipefail
 
-REPO_BASE_URL="https://raw.githubusercontent.com/nmhjklnm/cac/master"
+REPO_BASE_URL="${CAC_REPO_BASE_URL:-https://raw.githubusercontent.com/nmhjklnm/cac/master}"
 BIN_DIR="${HOME}/bin"
 DIST_DIR="${HOME}/.cac-dist"
 CAC_HOME="${HOME}/.cac"
@@ -71,10 +71,9 @@ parse_args() {
 
 is_local_repo() {
     [[ -f "${SCRIPT_DIR}/build.sh" ]] &&
-    [[ -f "${SCRIPT_DIR}/cac" ]] &&
-    [[ -f "${SCRIPT_DIR}/relay.js" ]] &&
-    [[ -f "${SCRIPT_DIR}/fingerprint-hook.js" ]] &&
-    [[ -d "${SCRIPT_DIR}/src" ]]
+    [[ -d "${SCRIPT_DIR}/src" ]] &&
+    [[ -f "${SCRIPT_DIR}/src/relay.js" ]] &&
+    [[ -f "${SCRIPT_DIR}/src/fingerprint-hook.js" ]]
 }
 
 resolve_install_mode() {
@@ -118,19 +117,31 @@ run_local_build() {
 
 download_remote_asset() {
     local name="$1"
-    curl -fsSL "${REPO_BASE_URL}/${name}" -o "${DIST_DIR}/${name}"
+    if ! curl -fsSL "${REPO_BASE_URL}/${name}" -o "${DIST_DIR}/${name}"; then
+        red "error: failed to download ${name} from ${REPO_BASE_URL}/${name}"
+        red "hint: if you extracted a release/source archive, run this installer from that directory so it uses local mode instead of remote mode"
+        exit 1
+    fi
 }
 
 install_assets() {
     mkdir -p "$DIST_DIR"
 
     if [[ "$INSTALL_MODE" == "local" ]]; then
+        local relay_src hook_src dns_guard_src
+        relay_src="${SCRIPT_DIR}/relay.js"
+        hook_src="${SCRIPT_DIR}/fingerprint-hook.js"
+        dns_guard_src="${SCRIPT_DIR}/cac-dns-guard.js"
+
+        [[ -f "$relay_src" ]] || relay_src="${SCRIPT_DIR}/src/relay.js"
+        [[ -f "$hook_src" ]] || hook_src="${SCRIPT_DIR}/src/fingerprint-hook.js"
+
         printf 'Installing from local repo ... '
         cp "${SCRIPT_DIR}/cac" "${DIST_DIR}/cac"
-        cp "${SCRIPT_DIR}/relay.js" "${DIST_DIR}/relay.js"
-        cp "${SCRIPT_DIR}/fingerprint-hook.js" "${DIST_DIR}/fingerprint-hook.js"
-        if [[ -f "${SCRIPT_DIR}/cac-dns-guard.js" ]]; then
-            cp "${SCRIPT_DIR}/cac-dns-guard.js" "${DIST_DIR}/cac-dns-guard.js"
+        cp "$relay_src" "${DIST_DIR}/relay.js"
+        cp "$hook_src" "${DIST_DIR}/fingerprint-hook.js"
+        if [[ -f "$dns_guard_src" ]]; then
+            cp "$dns_guard_src" "${DIST_DIR}/cac-dns-guard.js"
         fi
         green "✓"
     else

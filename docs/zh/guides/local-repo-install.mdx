@@ -9,6 +9,7 @@ icon: "server"
 - 你已经把仓库同步到了另一台服务器
 - 你做过本地修改，必须安装这些修改后的代码
 - 你希望用一个脚本完成构建、身份确认、安装和初始化
+- 你解压了 GitHub release / source archive，希望直接从解压目录安装而不是再去网络下载
 
 ## 一条命令安装
 
@@ -19,6 +20,7 @@ bash install.sh
 ```
 
 现在安装脚本会在检测到有效仓库时，自动优先使用当前本地仓库代码，而不是回退到 GitHub 下载。
+这也包括从 tag / release 页面下载并解压出来的源码包，即使其中没有提交生成后的顶层 `relay.js` 等文件也能识别为本地安装。
 
 ## 安装脚本会做什么
 
@@ -109,3 +111,5 @@ cac env ls
 ```bash
 CAC_DOCKER_REBUILD=1 cac docker create
 ```
+
+如果你不想使用 GitHub 自动生成的源码包，也可以直接下载 release 页面上传的 `cac-portable-<version>.zip` 自包含安装包。
