@@ -60,6 +60,10 @@ _ensure_initialized() {
     # Shims
     _write_hostname_shim
     _write_ifconfig_shim
+    _write_uname_shim
+    _write_whoami_shim
+    _write_id_shim
+    _write_grep_shim
     if [[ "$os" == "macos" ]]; then
         _write_ioreg_shim
     elif [[ "$os" == "linux" ]]; then

@@ -13,6 +13,9 @@ description: 版本发布历史和重要变更
 - 修复 `docker/entrypoint.sh`，解决 Chorny 身份模板应用后主容器在 profile 创建后立即重启的问题。
 - 修复本地 `cac docker port`，Docker Desktop / 本地模式不再依赖宿主直连容器 bridge IP，而是改为 helper container + localhost publish。
 - 修复 `cac docker check`，现在会在容器内执行 `cac-check` 并回读结果，不再依赖不稳定的附着式 exec 路径。
+- 强化 Docker 模式 persona：主进程默认以非 root 的伪装用户运行，并在 shell / Node.js 视图中保持稳定的 `uid` / `gid` / `home` / `shell` 指纹。
+- 补上 Docker 容器痕迹隐藏：移除 `/.dockerenv` / `/run/.containerenv`，伪装常见 `cgroup` / `mountinfo` 读取，并让 `cac-check` 增加工作区可写性与容器痕迹检查。
+- 调整 `cac docker create` / `cac docker start` 的本地镜像逻辑：当主镜像已存在时不再重复重建，降低验证过程中的外部拉取抖动。
 
 **验证体系与文档**
 

@@ -475,8 +475,13 @@ _dk_cmd_create() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   echo ""
   if _dk_can_build_local; then
-    _info "Building local images..."
-    _dk_compose build
+    if _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+      _info "Local image already present, refreshing docker-proxy..."
+      _dk_compose build docker-proxy
+    else
+      _info "Building local images..."
+      _dk_compose build
+    fi
   else
     _info "Building docker-proxy image..."
     _dk_compose build docker-proxy
@@ -493,7 +498,16 @@ _dk_cmd_start() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
   _info "Starting container..."
-  _dk_compose up -d --build
+  if _dk_can_build_local; then
+    if ! _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+      _info "Local image missing, building first..."
+      _dk_compose up -d --build
+    else
+      _dk_compose up -d
+    fi
+  else
+    _dk_compose up -d
+  fi
   _dk_shim_up
   sleep 2
 
@@ -527,7 +541,7 @@ _dk_cmd_restart() {
 
 _dk_cmd_enter() {
   _dk_init || return 1
-  _dk_compose exec "$_dk_service" bash
+  _dk_compose exec -u "${CAC_FAKE_USER:-cherny}" "$_dk_service" bash
 }
 
 _dk_cmd_check() {

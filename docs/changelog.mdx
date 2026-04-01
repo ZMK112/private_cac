@@ -13,6 +13,9 @@ All notable changes to this project are documented here. Each entry links to the
 - Fixed `docker/entrypoint.sh` so Docker-mode containers no longer restart immediately after profile creation when the Chorny identity template is applied.
 - Fixed local `cac docker port` forwarding by switching Docker Desktop/local mode to a helper-container publish model instead of relying on direct host access to the container bridge IP.
 - Fixed `cac docker check` so it captures `cac-check` output from inside the container without depending on a fragile attached exec path.
+- Hardened Docker-mode persona handling so the main process now runs as a non-root fake user by default, with stable `uid`/`gid`/`home`/`shell` surfaces in both shell and Node.js views.
+- Added local container-trace masking for Docker mode: removes `/.dockerenv`/`/run/.containerenv`, sanitizes common `cgroup`/`mountinfo` reads, and extends `cac-check` to validate workspace writability plus hidden container markers.
+- Made `cac docker create` / `cac docker start` more validation-friendly by avoiding unnecessary main-image rebuilds when the local image already exists.
 
 **Validation and docs**
 

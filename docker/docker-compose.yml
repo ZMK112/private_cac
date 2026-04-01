@@ -39,6 +39,25 @@ services:
       CAC_CHILD_CONTAINER_PROXY_URL: ${CAC_CHILD_CONTAINER_PROXY_URL:-}
       CAC_CHILD_CONTAINER_NO_PROXY: ${CAC_CHILD_CONTAINER_NO_PROXY:-localhost,127.0.0.1,::1}
       CAC_REAL_DOCKER_BIN: /usr/local/bin/docker-real
+      CAC_FAKE_USER: ${CAC_FAKE_USER:-cherny}
+      CAC_FAKE_UID: ${CAC_FAKE_UID:-1001}
+      CAC_FAKE_GID: ${CAC_FAKE_GID:-1001}
+      CAC_FAKE_HOME: ${CAC_FAKE_HOME:-/home/cherny}
+      CAC_FAKE_SHELL: ${CAC_FAKE_SHELL:-/bin/bash}
+      CAC_FAKE_OS_TYPE: ${CAC_FAKE_OS_TYPE:-Linux}
+      CAC_FAKE_OS_RELEASE: ${CAC_FAKE_OS_RELEASE:-6.6.31-boris}
+      CAC_FAKE_OS_VERSION: "${CAC_FAKE_OS_VERSION:-Debian GNU/Linux 12}"
+      CAC_FAKE_OS_PRETTY_NAME: "${CAC_FAKE_OS_PRETTY_NAME:-Debian GNU/Linux 12 (bookworm)}"
+      CAC_FAKE_DISTRO_ID: ${CAC_FAKE_DISTRO_ID:-debian}
+      CAC_FAKE_DISTRO_VERSION: ${CAC_FAKE_DISTRO_VERSION:-12}
+      CAC_FAKE_PROC_VERSION: "${CAC_FAKE_PROC_VERSION:-Linux version 6.6.31-boris builder@cherny SMP PREEMPT_DYNAMIC}"
+      CAC_FAKE_CGROUP_TEXT: "${CAC_FAKE_CGROUP_TEXT:-0::/}"
+      CAC_FAKE_MOUNTINFO_TEXT: "${CAC_FAKE_MOUNTINFO_TEXT:-24 23 0:1 / / rw,relatime - ext4 /dev/root rw}"
+      HOME: ${CAC_FAKE_HOME:-/home/cherny}
+      USER: ${CAC_FAKE_USER:-cherny}
+      LOGNAME: ${CAC_FAKE_USER:-cherny}
+      SHELL: ${CAC_FAKE_SHELL:-/bin/bash}
+      TERM: ${CAC_FAKE_TERM:-xterm-256color}
     volumes:
       - ${CAC_DATA:-./data}/root:/root
       - ${CAC_DATA:-./data}/home:/home

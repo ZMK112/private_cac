@@ -6,6 +6,37 @@ PASS="\033[32mok\033[0m"
 FAIL="\033[31mFAIL\033[0m"
 errors=0
 
+PERSONA_HOME="${CAC_HOME:-${CAC_FAKE_HOME:-/home/${CAC_RUNTIME_USER:-${CAC_FAKE_USER:-cherny}}}}"
+[ -d "$PERSONA_HOME" ] && export HOME="$PERSONA_HOME"
+if [ -f "$HOME/.cac-env" ]; then
+  # shellcheck disable=SC1090
+  . "$HOME/.cac-env"
+fi
+PERSONA_HOME="${CAC_HOME:-$HOME}"
+export HOME="$PERSONA_HOME"
+if [ -d "$HOME/.cac/shim-bin" ]; then
+  PATH="$HOME/.cac/shim-bin:$PATH"
+  export PATH
+fi
+
+current_profile() {
+  cat "${CAC_HOME:-$HOME}/.cac/current" 2>/dev/null || true
+}
+
+profile_file() {
+  local current
+  current="$(current_profile)"
+  [[ -n "$current" ]] || return 1
+  printf '%s\n' "${CAC_HOME:-$HOME}/.cac/envs/$current/$1"
+}
+
+read_profile_value() {
+  local file
+  file="$(profile_file "$1")" || return 1
+  [[ -f "$file" ]] || return 1
+  tr -d '\r\n' < "$file"
+}
+
 run_check() {
   local label="$1" hint="$2"
   shift 2
@@ -78,12 +109,19 @@ check_geo() {
   echo "TZ=$tz  LANG=$lang  Accept=$accept"
 }
 
+check_workspace_write() {
+  local probe="/workspace/.cac-write-check.$$"
+  printf 'ok\n' >"$probe" || return 1
+  rm -f "$probe" || return 1
+  echo "/workspace writable"
+}
+
 # ── Identity checks (cac) ───────────────────────────────────────────
 
 check_cac() {
-  if [ -d "$HOME/.cac" ]; then
+  if [ -d "${CAC_HOME:-$HOME}/.cac" ]; then
     local current
-    current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "none")
+    current=$(cat "${CAC_HOME:-$HOME}/.cac/current" 2>/dev/null || echo "none")
     echo "installed, profile: $current"
   else
     echo "not installed"
@@ -95,11 +133,12 @@ check_hostname() {
   local spoofed_hn current current_hn actual_hn
   spoofed_hn="${CAC_HOSTNAME:-}"
   current=$(cat "$HOME/.cac/current" 2>/dev/null || echo "")
+  [ -z "$current" ] && current=$(cat "${CAC_HOME:-$HOME}/.cac/current" 2>/dev/null || echo "")
   current_hn=""
   actual_hn="$(hostname 2>/dev/null || true)"
 
-  if [ -n "$current" ] && [ -f "$HOME/.cac/envs/$current/hostname" ]; then
-    current_hn=$(tr -d '[:space:]' < "$HOME/.cac/envs/$current/hostname")
+  if [ -n "$current" ] && [ -f "${CAC_HOME:-$HOME}/.cac/envs/$current/hostname" ]; then
+    current_hn=$(tr -d '[:space:]' < "${CAC_HOME:-$HOME}/.cac/envs/$current/hostname")
   fi
 
   if [ -z "$spoofed_hn" ]; then
@@ -123,6 +162,108 @@ check_hostname() {
   echo "spoofed: $spoofed_hn"
 }
 
+check_persona() {
+  local expected_user expected_uid expected_gid expected_home expected_shell actual_user actual_uid actual_gid actual_home actual_shell node_info
+  expected_user="$(read_profile_value username)" || return 1
+  expected_uid="$(read_profile_value uid)" || return 1
+  expected_gid="$(read_profile_value gid)" || return 1
+  expected_home="$(read_profile_value home_dir)" || return 1
+  expected_shell="$(read_profile_value shell_path)" || return 1
+
+  actual_user="$(whoami 2>/dev/null || true)"
+  actual_uid="$(id -u 2>/dev/null || true)"
+  actual_gid="$(id -g 2>/dev/null || true)"
+  actual_home="${HOME:-}"
+  actual_shell="${SHELL:-}"
+
+  [[ "$actual_user" == "$expected_user" ]] || return 1
+  [[ "$actual_uid" == "$expected_uid" ]] || return 1
+  [[ "$actual_gid" == "$expected_gid" ]] || return 1
+  [[ "$actual_home" == "$expected_home" ]] || return 1
+  [[ "$actual_shell" == "$expected_shell" ]] || return 1
+
+  node_info=$(
+    CAC_USERNAME="$expected_user" \
+    CAC_UID="$expected_uid" \
+    CAC_GID="$expected_gid" \
+    CAC_HOME="$expected_home" \
+    CAC_SHELL="$expected_shell" \
+    NODE_OPTIONS="--require /usr/local/bin/fingerprint-hook.js" \
+    node -e "const os=require('os'); process.stdout.write([os.homedir(), process.getuid(), process.getgid()].join('|'))" 2>/dev/null
+  ) || return 1
+
+  [[ "$node_info" == "$expected_home|$expected_uid|$expected_gid" ]] || return 1
+  echo "$expected_user uid=$expected_uid home=$expected_home"
+}
+
+check_kernel_mask() {
+  local expected_type expected_release actual_uname node_uname
+  expected_type="$(read_profile_value os_type)" || return 1
+  expected_release="$(read_profile_value os_release)" || return 1
+
+  actual_uname="$(uname -sr 2>/dev/null || true)"
+  [[ "$actual_uname" == "$expected_type $expected_release" ]] || return 1
+
+  node_uname=$(
+    CAC_OS_TYPE="$expected_type" \
+    CAC_OS_RELEASE="$expected_release" \
+    NODE_OPTIONS="--require /usr/local/bin/fingerprint-hook.js" \
+    node -e "const os=require('os'); process.stdout.write(os.type() + ' ' + os.release())" 2>/dev/null
+  ) || return 1
+  [[ "$node_uname" == "$expected_type $expected_release" ]] || return 1
+  echo "$actual_uname"
+}
+
+check_distro_mask() {
+  local expected_id expected_version os_release_text node_release_text
+  expected_id="$(read_profile_value linux_distro_id)" || return 1
+  expected_version="$(read_profile_value linux_distro_version)" || return 1
+
+  os_release_text="$(cat /etc/os-release 2>/dev/null || true)"
+  grep -q "^ID=${expected_id}$" <<<"$os_release_text" || return 1
+  grep -q "^VERSION_ID=\"${expected_version}\"$" <<<"$os_release_text" || return 1
+
+  node_release_text=$(
+    CAC_LINUX_DISTRO_ID="$expected_id" \
+    CAC_LINUX_DISTRO_VERSION="$expected_version" \
+    CAC_OS_PRETTY_NAME="$(read_profile_value os_pretty_name 2>/dev/null || echo "")" \
+    CAC_OS_VERSION="$(read_profile_value os_version 2>/dev/null || echo "")" \
+    NODE_OPTIONS="--require /usr/local/bin/fingerprint-hook.js" \
+    node -e "const fs=require('fs'); process.stdout.write(fs.readFileSync('/etc/os-release','utf8'))" 2>/dev/null
+  ) || return 1
+  grep -q "^ID=${expected_id}$" <<<"$node_release_text" || return 1
+  grep -q "^VERSION_ID=\"${expected_version}\"$" <<<"$node_release_text" || return 1
+  echo "ID=${expected_id} VERSION_ID=${expected_version}"
+}
+
+check_pid1_user() {
+  local expected_uid expected_gid actual_uid actual_gid
+  expected_uid="$(read_profile_value uid 2>/dev/null || true)"
+  expected_gid="$(read_profile_value gid 2>/dev/null || true)"
+  [[ -z "$expected_uid" ]] && expected_uid="${CAC_EFFECTIVE_UID:-}"
+  [[ -z "$expected_gid" ]] && expected_gid="${CAC_EFFECTIVE_GID:-}"
+  [ -n "$expected_uid" ] || return 1
+  [ -n "$expected_gid" ] || return 1
+
+  actual_uid="$(awk '/^Uid:/{print $2; exit}' /proc/1/status 2>/dev/null || true)"
+  actual_gid="$(awk '/^Gid:/{print $2; exit}' /proc/1/status 2>/dev/null || true)"
+  [[ -n "$actual_uid" && "$actual_uid" != "0" ]] || return 1
+  [[ "$actual_uid" == "$expected_uid" ]] || return 1
+  [[ "$actual_gid" == "$expected_gid" ]] || return 1
+  echo "pid1 uid=${actual_uid} gid=${actual_gid}"
+}
+
+check_container_traces() {
+  local cgroup_text mountinfo_text
+  [ ! -e /.dockerenv ] || return 1
+  [ ! -e /run/.containerenv ] || return 1
+  cgroup_text="$(cat /proc/1/cgroup 2>/dev/null || true)"
+  mountinfo_text="$(cat /proc/1/mountinfo 2>/dev/null || true)"
+  ! grep -qiE 'docker|containerd|kubepods|libpod' <<<"$cgroup_text" || return 1
+  ! grep -qiE 'docker|containerd|kubepods|libpod|overlay' <<<"$mountinfo_text" || return 1
+  echo "no docker markers in cgroup/mountinfo"
+}
+
 # ── Run all checks ──────────────────────────────────────────────────
 
 printf "\033[1mNetwork\033[0m\n"
@@ -133,11 +274,17 @@ run_check "TCP"   "TCP connect failed — check proxy address and credentials" c
 run_check "HTTP"  "HTTP request failed — check TLS and proxy config" check_http
 run_check "EXIT"  "Cannot determine exit IP" check_exit_ip
 run_check "GEO"   "Timezone/locale not set" check_geo
+run_check "WS"    "Workspace is not writable by runtime user" check_workspace_write
 
 echo ""
 printf "\033[1mIdentity\033[0m\n"
 run_check "CAC"   "cac not installed — run: cac setup" check_cac
 run_check "HOST"  "Hostname not spoofed" check_hostname
+run_check "USER"  "User/home persona not spoofed" check_persona
+run_check "PID1"  "Main process still running as root" check_pid1_user
+run_check "UNAME" "Kernel version not spoofed" check_kernel_mask
+run_check "DIST"  "Linux distro info not spoofed" check_distro_mask
+run_check "TRACE" "Container markers still visible" check_container_traces
 
 echo ""
 if [ "$errors" -eq 0 ]; then

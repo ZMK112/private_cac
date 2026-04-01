@@ -1248,6 +1248,23 @@ fi
 
 [[ -f "$_env_dir/tz" ]]   && export TZ=$(tr -d '[:space:]' < "$_env_dir/tz")
 [[ -f "$_env_dir/lang" ]] && export LANG=$(tr -d '[:space:]' < "$_env_dir/lang")
+[[ -f "$_env_dir/home_dir" ]] && export CAC_HOME=$(tr -d '\r\n' < "$_env_dir/home_dir") && export HOME="$CAC_HOME"
+[[ -f "$_env_dir/shell_path" ]] && export CAC_SHELL=$(tr -d '\r\n' < "$_env_dir/shell_path") && export SHELL="$CAC_SHELL"
+if [[ -f "$_env_dir/username" ]]; then
+    export CAC_USERNAME=$(tr -d '\r\n' < "$_env_dir/username")
+    export USER="$CAC_USERNAME" LOGNAME="$CAC_USERNAME"
+else
+    export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
+fi
+[[ -f "$_env_dir/uid" ]] && export CAC_UID=$(tr -d '\r\n' < "$_env_dir/uid")
+[[ -f "$_env_dir/gid" ]] && export CAC_GID=$(tr -d '\r\n' < "$_env_dir/gid")
+[[ -f "$_env_dir/os_type" ]] && export CAC_OS_TYPE=$(tr -d '\r\n' < "$_env_dir/os_type")
+[[ -f "$_env_dir/os_release" ]] && export CAC_OS_RELEASE=$(tr -d '\r\n' < "$_env_dir/os_release")
+[[ -f "$_env_dir/os_version" ]] && export CAC_OS_VERSION=$(tr -d '\r\n' < "$_env_dir/os_version")
+[[ -f "$_env_dir/os_pretty_name" ]] && export CAC_OS_PRETTY_NAME=$(tr -d '\r\n' < "$_env_dir/os_pretty_name")
+[[ -f "$_env_dir/linux_distro_id" ]] && export CAC_LINUX_DISTRO_ID=$(tr -d '\r\n' < "$_env_dir/linux_distro_id")
+[[ -f "$_env_dir/linux_distro_version" ]] && export CAC_LINUX_DISTRO_VERSION=$(tr -d '\r\n' < "$_env_dir/linux_distro_version")
+[[ -f "$_env_dir/proc_version" ]] && export CAC_PROC_VERSION=$(tr -d '\r\n' < "$_env_dir/proc_version")
 if [[ -f "$_env_dir/hostname" ]]; then
     _hn=$(tr -d '[:space:]' < "$_env_dir/hostname")
     export HOSTNAME="$_hn" CAC_HOSTNAME="$_hn"
@@ -1256,7 +1273,6 @@ fi
 # Node.js-level fingerprint interception (bypasses shell shim limitations)
 [[ -f "$_env_dir/mac_address" ]] && export CAC_MAC=$(tr -d '[:space:]' < "$_env_dir/mac_address")
 [[ -f "$_env_dir/machine_id" ]]  && export CAC_MACHINE_ID=$(tr -d '[:space:]' < "$_env_dir/machine_id")
-export CAC_USERNAME="user-$(echo "$_name" | cut -c1-8)"
 if [[ -f "$CAC_DIR/fingerprint-hook.js" ]]; then
     case "${NODE_OPTIONS:-}" in
         *fingerprint-hook.js*) ;;
@@ -1370,7 +1386,7 @@ CAC_DIR="$HOME/.cac"
 
 # non-target call: passthrough to real ioreg
 if ! echo "$*" | grep -q "IOPlatformExpertDevice"; then
-    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
+    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') \
             command -v ioreg 2>/dev/null || true)
     [[ -n "$_real" ]] && exec "$_real" "$@"
     exit 0
@@ -1379,7 +1395,7 @@ fi
 # read current env UUID
 _uuid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/uuid"
 if [[ ! -f "$_uuid_file" ]]; then
-    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') \
+    _real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') \
             command -v ioreg 2>/dev/null || true)
     [[ -n "$_real" ]] && exec "$_real" "$@"
     exit 0
@@ -1418,13 +1434,54 @@ _write_machine_id_shim() {
 CAC_DIR="$HOME/.cac"
 
 # get real cat path first (avoid recursive self-call)
-_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v cat 2>/dev/null || true)
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v cat 2>/dev/null || true)
 
 # intercept /etc/machine-id and /var/lib/dbus/machine-id
 if [[ "$1" == "/etc/machine-id" ]] || [[ "$1" == "/var/lib/dbus/machine-id" ]]; then
     _mid_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/machine_id"
     if [[ -f "$_mid_file" ]] && [[ -n "$_real" ]]; then
         exec "$_real" "$_mid_file"
+    fi
+fi
+
+if [[ "$1" == "/etc/os-release" ]] || [[ "$1" == "/usr/lib/os-release" ]]; then
+    _env_dir="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)"
+    _pretty_file="$_env_dir/os_pretty_name"
+    _id_file="$_env_dir/linux_distro_id"
+    _ver_file="$_env_dir/linux_distro_version"
+    if [[ -f "$_pretty_file" ]] || [[ -f "$_id_file" ]] || [[ -f "$_ver_file" ]]; then
+        _pretty="Linux"
+        _id="linux"
+        _ver=""
+        [[ -f "$_pretty_file" ]] && _pretty=$(tr -d '\r\n' < "$_pretty_file")
+        [[ -f "$_id_file" ]] && _id=$(tr -d '\r\n' < "$_id_file")
+        [[ -f "$_ver_file" ]] && _ver=$(tr -d '\r\n' < "$_ver_file")
+        _name="${_pretty%% *}"
+        printf 'PRETTY_NAME="%s"\nNAME="%s"\n' "$_pretty" "$_name"
+        [[ -n "$_ver" ]] && printf 'VERSION_ID="%s"\nVERSION="%s"\n' "$_ver" "$_ver"
+        printf 'ID=%s\n' "$_id"
+        exit 0
+    fi
+fi
+
+if [[ "$1" == "/proc/version" ]]; then
+    _pv_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/proc_version"
+    if [[ -f "$_pv_file" ]]; then
+        exec "$_real" "$_pv_file"
+    fi
+fi
+
+if [[ "$1" == "/proc/1/cgroup" ]] || [[ "$1" == "/proc/self/cgroup" ]] || [[ "$1" == "/proc/thread-self/cgroup" ]]; then
+    _cg_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/cgroup_text"
+    if [[ -f "$_cg_file" ]] && [[ -n "$_real" ]]; then
+        exec "$_real" "$_cg_file"
+    fi
+fi
+
+if [[ "$1" == "/proc/1/mountinfo" ]] || [[ "$1" == "/proc/self/mountinfo" ]] || [[ "$1" == "/proc/thread-self/mountinfo" ]]; then
+    _mi_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/mountinfo_text"
+    if [[ -f "$_mi_file" ]] && [[ -n "$_real" ]]; then
+        exec "$_real" "$_mi_file"
     fi
 fi
 
@@ -1449,7 +1506,7 @@ if [[ -f "$_hn_file" ]]; then
 fi
 
 # passthrough to real hostname
-_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v hostname 2>/dev/null || true)
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v hostname 2>/dev/null || true)
 [[ -n "$_real" ]] && exec "$_real" "$@"
 exit 1
 HOSTNAME_EOF
@@ -1462,7 +1519,7 @@ _write_ifconfig_shim() {
 #!/usr/bin/env bash
 CAC_DIR="$HOME/.cac"
 
-_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | grep -v "$CAC_DIR/shim-bin" | tr '\n' ':') command -v ifconfig 2>/dev/null || true)
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v ifconfig 2>/dev/null || true)
 
 _mac_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/mac_address"
 if [[ -f "$_mac_file" ]] && [[ -n "$_real" ]]; then
@@ -1474,6 +1531,177 @@ fi
 exit 1
 IFCONFIG_EOF
     chmod +x "$CAC_DIR/shim-bin/ifconfig"
+}
+
+_write_uname_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/uname" << 'UNAME_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v uname 2>/dev/null || true)
+_env_dir="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)"
+_type_file="$_env_dir/os_type"
+_release_file="$_env_dir/os_release"
+_host_file="$_env_dir/hostname"
+_os_type="Linux"
+_os_release=""
+_host_name=""
+[[ -f "$_type_file" ]] && _os_type=$(tr -d '\r\n' < "$_type_file")
+[[ -f "$_release_file" ]] && _os_release=$(tr -d '\r\n' < "$_release_file")
+[[ -f "$_host_file" ]] && _host_name=$(tr -d '\r\n' < "$_host_file")
+
+case "${1:-}" in
+    "")
+        printf '%s\n' "$_os_type"
+        exit 0
+        ;;
+    -s)
+        printf '%s\n' "$_os_type"
+        exit 0
+        ;;
+    -r)
+        [[ -n "$_os_release" ]] && printf '%s\n' "$_os_release" && exit 0
+        ;;
+    -sr|-rs)
+        [[ -n "$_os_release" ]] && printf '%s %s\n' "$_os_type" "$_os_release" && exit 0
+        ;;
+    -a)
+        [[ -n "$_os_release" ]] && printf '%s %s %s #1 SMP PREEMPT_DYNAMIC\n' "$_os_type" "${_host_name:-localhost}" "$_os_release" && exit 0
+        ;;
+esac
+
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+UNAME_EOF
+    chmod +x "$CAC_DIR/shim-bin/uname"
+}
+
+_write_whoami_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/whoami" << 'WHOAMI_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+_user_file="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)/username"
+if [[ -f "$_user_file" ]]; then
+    tr -d '\r\n' < "$_user_file"
+    exit 0
+fi
+
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v whoami 2>/dev/null || true)
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+WHOAMI_EOF
+    chmod +x "$CAC_DIR/shim-bin/whoami"
+}
+
+_write_id_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/id" << 'ID_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+_env_dir="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)"
+_user_file="$_env_dir/username"
+_uid_file="$_env_dir/uid"
+_gid_file="$_env_dir/gid"
+_user="user"
+_uid="1000"
+_gid="1000"
+[[ -f "$_user_file" ]] && _user=$(tr -d '\r\n' < "$_user_file")
+[[ -f "$_uid_file" ]] && _uid=$(tr -d '\r\n' < "$_uid_file")
+[[ -f "$_gid_file" ]] && _gid=$(tr -d '\r\n' < "$_gid_file")
+
+case "${1:-}" in
+    -un)
+        printf '%s\n' "$_user"
+        exit 0
+        ;;
+    -u)
+        printf '%s\n' "$_uid"
+        exit 0
+        ;;
+    -gn)
+        printf '%s\n' "$_user"
+        exit 0
+        ;;
+    -g)
+        printf '%s\n' "$_gid"
+        exit 0
+        ;;
+    "")
+        printf 'uid=%s(%s) gid=%s(%s) groups=%s(%s)\n' "$_uid" "$_user" "$_gid" "$_user" "$_gid" "$_user"
+        exit 0
+        ;;
+esac
+
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v id 2>/dev/null || true)
+[[ -n "$_real" ]] && exec "$_real" "$@"
+exit 1
+ID_EOF
+    chmod +x "$CAC_DIR/shim-bin/id"
+}
+
+_write_grep_shim() {
+    mkdir -p "$CAC_DIR/shim-bin"
+    cat > "$CAC_DIR/shim-bin/grep" << 'GREP_EOF'
+#!/usr/bin/env bash
+CAC_DIR="$HOME/.cac"
+
+_real=$(PATH=$(echo "$PATH" | tr ':' '\n' | awk -v bad="$CAC_DIR/shim-bin" '$0 != bad' | tr '\n' ':') command -v grep 2>/dev/null || true)
+[[ -n "$_real" ]] || exit 1
+
+_env_dir="$CAC_DIR/envs/$(tr -d '[:space:]' < "$CAC_DIR/current" 2>/dev/null)"
+_tmp_files=()
+cleanup() {
+    local f
+    for f in "${_tmp_files[@]}"; do
+        rm -f "$f"
+    done
+}
+trap cleanup EXIT
+
+_args=()
+for arg in "$@"; do
+    case "$arg" in
+        /proc/1/cgroup|/proc/self/cgroup|/proc/thread-self/cgroup)
+            _src="$_env_dir/cgroup_text"
+            if [[ -f "$_src" ]]; then
+                _tmp=$(mktemp)
+                cp "$_src" "$_tmp"
+                _tmp_files+=("$_tmp")
+                _args+=("$_tmp")
+            else
+                _args+=("$arg")
+            fi
+            ;;
+        /proc/1/mountinfo|/proc/self/mountinfo|/proc/thread-self/mountinfo)
+            _src="$_env_dir/mountinfo_text"
+            if [[ -f "$_src" ]]; then
+                _tmp=$(mktemp)
+                cp "$_src" "$_tmp"
+                _tmp_files+=("$_tmp")
+                _args+=("$_tmp")
+            else
+                _args+=("$arg")
+            fi
+            ;;
+        /.dockerenv|/run/.containerenv)
+            _tmp=$(mktemp)
+            : > "$_tmp"
+            _tmp_files+=("$_tmp")
+            _args+=("$_tmp")
+            ;;
+        *)
+            _args+=("$arg")
+            ;;
+    esac
+done
+
+exec "$_real" "${_args[@]}"
+GREP_EOF
+    chmod +x "$CAC_DIR/shim-bin/grep"
 }
 
 # ━━━ cmd_setup.sh ━━━
@@ -1539,6 +1767,10 @@ _ensure_initialized() {
     # Shims
     _write_hostname_shim
     _write_ifconfig_shim
+    _write_uname_shim
+    _write_whoami_shim
+    _write_id_shim
+    _write_grep_shim
     if [[ "$os" == "macos" ]]; then
         _write_ioreg_shim
     elif [[ "$os" == "linux" ]]; then
@@ -3150,8 +3382,13 @@ _dk_cmd_create() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   echo ""
   if _dk_can_build_local; then
-    _info "Building local images..."
-    _dk_compose build
+    if _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+      _info "Local image already present, refreshing docker-proxy..."
+      _dk_compose build docker-proxy
+    else
+      _info "Building local images..."
+      _dk_compose build
+    fi
   else
     _info "Building docker-proxy image..."
     _dk_compose build docker-proxy
@@ -3168,7 +3405,16 @@ _dk_cmd_start() {
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
   _info "Starting container..."
-  _dk_compose up -d --build
+  if _dk_can_build_local; then
+    if ! _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+      _info "Local image missing, building first..."
+      _dk_compose up -d --build
+    else
+      _dk_compose up -d
+    fi
+  else
+    _dk_compose up -d
+  fi
   _dk_shim_up
   sleep 2
 
@@ -3202,7 +3448,7 @@ _dk_cmd_restart() {
 
 _dk_cmd_enter() {
   _dk_init || return 1
-  _dk_compose exec "$_dk_service" bash
+  _dk_compose exec -u "${CAC_FAKE_USER:-cherny}" "$_dk_service" bash
 }
 
 _dk_cmd_check() {
