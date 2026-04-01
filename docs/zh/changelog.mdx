@@ -25,6 +25,7 @@ description: 版本发布历史和重要变更
 - 修复 Docker sidecar 的宿主 socket 挂载：现在会跟随当前 Docker context 使用实际的 Unix socket，不再假定永远是 `/var/run/docker.sock`，从而兼容使用 `~/.docker/run/docker.sock` 的机器。
 - 调整 `cac docker start` 和 `cac docker rebuild`：只有在主容器完成初始化且 PID 1 已真实降权到运行用户后，才会报告成功。
 - 收紧 `bash install.sh --local` 的 Docker 自动刷新条件：现在只会刷新已在运行中的旧栈；对于尚未在当前机器重新配置好的 Docker 模式，不再自动 `create/start`。
+- 为 `cac docker start` / `cac docker rebuild` 的就绪等待补充显式进度提示，便于区分当前是在等待容器状态、容器内 Docker API，还是等待 PID 1 完成降权。
 
 **验证体系与文档**
 

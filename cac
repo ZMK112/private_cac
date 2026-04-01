@@ -3192,17 +3192,46 @@ _dk_compose() {
 }
 
 _dk_wait_runtime_ready() {
-  local state="" pid1_uid="" tries
+  local state="" pid1_uid="" docker_api_rc="" tries phase="" detail="" last_detail=""
   for tries in $(seq 1 90); do
     state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "")
-    if [[ "$state" == "running" ]]; then
-      pid1_uid="$(
-        _dk_compose exec -T "$_dk_service" sh -lc "awk '/^Uid:/{print \$2; exit}' /proc/1/status" 2>/dev/null |
+    if [[ "$state" != "running" ]]; then
+      phase="state"
+      detail="${state:-starting}"
+    else
+      docker_api_rc="$(
+        _dk_compose exec -T "$_dk_service" sh -lc "timeout 3 docker-real version >/dev/null 2>&1; printf '%s' \$?" 2>/dev/null |
           tr -d '\r\n'
       )"
-      if [[ -n "$pid1_uid" && "$pid1_uid" != "0" ]]; then
-        return 0
+      if [[ "$docker_api_rc" != "0" ]]; then
+        phase="docker-api"
+        detail="waiting"
+      else
+        pid1_uid="$(
+          _dk_compose exec -T "$_dk_service" sh -lc "awk '/^Uid:/{print \$2; exit}' /proc/1/status" 2>/dev/null |
+            tr -d '\r\n'
+        )"
+        if [[ -n "$pid1_uid" && "$pid1_uid" != "0" ]]; then
+          return 0
+        fi
+        phase="pid1"
+        detail="${pid1_uid:-unknown}"
       fi
+    fi
+
+    if [[ "$detail" != "$last_detail" ]]; then
+      case "$phase" in
+        state)
+          _info "Waiting for main container state: \033[1m${detail}\033[0m"
+          ;;
+        docker-api)
+          _info "Container running; waiting for in-container Docker API..."
+          ;;
+        pid1)
+          _info "Docker API ready; waiting for PID 1 to drop privileges..."
+          ;;
+      esac
+      last_detail="$detail"
     fi
     sleep 1
   done

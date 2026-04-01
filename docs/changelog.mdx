@@ -25,6 +25,7 @@ All notable changes to this project are documented here. Each entry links to the
 - Fixed Docker sidecar socket mounting to follow the active Docker context's Unix socket instead of assuming `/var/run/docker.sock`, improving compatibility on machines where the CLI talks to Docker through `~/.docker/run/docker.sock`.
 - Updated `cac docker start` and `cac docker rebuild` so they only report success after the main container has finished initialization and PID 1 has actually dropped to the runtime user.
 - Tightened `bash install.sh --local` Docker auto-refresh: it now only refreshes an already running stack, and skips automatic startup on machines where Docker mode has not been reconfigured yet.
+- Added explicit progress messages during `cac docker start` / `cac docker rebuild` readiness waits so it is clear whether startup is waiting on the container state, the in-container Docker API, or PID 1 privilege drop.
 
 **Validation and docs**
 
