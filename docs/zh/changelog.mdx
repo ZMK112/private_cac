@@ -24,6 +24,7 @@ description: 版本发布历史和重要变更
 - 调整 `cac docker setup`：主代理变更时会同步刷新默认 child proxy；同时明确裸 `host:port` 在 Docker 模式下按 SOCKS5 解释，如为 HTTP 代理需显式写 `http://...`。
 - 修复 Docker sidecar 的宿主 socket 挂载：现在会跟随当前 Docker context 使用实际的 Unix socket，不再假定永远是 `/var/run/docker.sock`，从而兼容使用 `~/.docker/run/docker.sock` 的机器。
 - 调整 `cac docker start` 和 `cac docker rebuild`：只有在主容器完成初始化且 PID 1 已真实降权到运行用户后，才会报告成功。
+- 收紧 `bash install.sh --local` 的 Docker 自动刷新条件：现在只会刷新已在运行中的旧栈；对于尚未在当前机器重新配置好的 Docker 模式，不再自动 `create/start`。
 
 **验证体系与文档**
 

@@ -214,12 +214,13 @@ refresh_existing_docker_stack() {
         return 0
     fi
 
-    local container_name proxy_name workspace_dir stack_exists
+    local container_name proxy_name workspace_dir stack_exists stack_running
     container_name="$(read_kv_file "$env_file" CAC_CONTAINER_NAME || true)"
     proxy_name="$(read_kv_file "$env_file" CAC_DOCKER_PROXY_NAME || true)"
     container_name="${container_name:-boris-main}"
     proxy_name="${proxy_name:-boris-gateway}"
     stack_exists=false
+    stack_running=false
 
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -Fxq "$container_name"; then
         stack_exists=true
@@ -228,6 +229,21 @@ refresh_existing_docker_stack() {
     fi
 
     [[ "$stack_exists" == "true" ]] || return 0
+
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$container_name"; then
+        stack_running=true
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -Fxq "$proxy_name"; then
+        stack_running=true
+    fi
+
+    if [[ "$stack_running" != "true" ]]; then
+        yellow "Skipping automatic Docker refresh: existing stack is not running"
+        yellow "Run setup/start manually after confirming the proxy on this machine:"
+        printf '  cac docker setup\n'
+        printf '  cac docker create\n'
+        printf '  cac docker start\n'
+        return 0
+    fi
 
     workspace_dir="$(docker inspect -f '{{range .Mounts}}{{if eq .Destination "/workspace"}}{{.Source}}{{end}}{{end}}' "$container_name" 2>/dev/null || true)"
     [[ -d "$workspace_dir" ]] || workspace_dir="$SCRIPT_DIR"
