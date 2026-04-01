@@ -30,6 +30,7 @@ All notable changes to this project are documented here. Each entry links to the
 - When Docker startup readiness times out, `cac docker start` / `cac docker rebuild` now stop the stack automatically instead of leaving a half-started container behind.
 - Added a Docker API compatibility preflight before `cac docker create` / `cac docker start`: if the host daemon's minimum API version is newer than the Docker CLI bundled in the image, startup now fails fast with a clear error instead of hanging in readiness.
 - Docker mode now defaults to a pinned image tag instead of `latest`, writes that exact image reference into `.env` during setup, and rejects mutable `CAC_DOCKER_IMAGE` values such as `:latest` or tagless refs.
+- When the pinned runtime image cannot be pulled but the source tree is available locally, Docker mode now falls back to building that same pinned image tag from the checked-out source instead of silently switching to a mutable ref.
 
 **Validation and docs**
 

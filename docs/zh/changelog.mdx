@@ -30,6 +30,7 @@ description: 版本发布历史和重要变更
 - 当 Docker 启动等待超时时，`cac docker start` / `cac docker rebuild` 现在会自动停掉栈，而不是留下半启动状态的容器。
 - 为 `cac docker create` / `cac docker start` 增加 Docker API 兼容性预检：如果宿主 daemon 的最低 API 版本高于镜像内置 Docker CLI 的 API 版本，现在会直接明确报错，而不是在就绪阶段静默卡住。
 - Docker 模式现在默认使用固定镜像 tag，不再落到 `latest`；`setup` 会把精确镜像引用写入 `.env`，并拒绝 `:latest` 或无 tag / 无 digest 的可变 `CAC_DOCKER_IMAGE` 配置。
+- 如果固定 release 镜像拉取失败，但本地存在源码树，Docker 模式现在会回退为“按当前源码构建同一个固定 tag 的镜像”，而不是偷偷退回到可变镜像引用。
 
 **验证体系与文档**
 

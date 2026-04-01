@@ -3094,6 +3094,53 @@ _dk_force_local_rebuild() {
   [[ "${CAC_DOCKER_REBUILD:-0}" == "1" ]]
 }
 
+_dk_wants_local_build() {
+  local flag
+  flag="${CAC_DOCKER_BUILD_LOCAL:-$(_dk_read_env CAC_DOCKER_BUILD_LOCAL)}"
+  [[ "$flag" == "1" || "$flag" == "true" ]] || _dk_force_local_rebuild
+}
+
+_dk_should_build_local() {
+  _dk_can_build_local && _dk_wants_local_build
+}
+
+_dk_build_runtime_image_locally() {
+  if _dk_force_local_rebuild; then
+    _info "Rebuilding local images..."
+    _dk_compose build
+  elif _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+    _info "Local image already present, refreshing docker-proxy..."
+    _dk_compose build docker-proxy
+  else
+    _info "Building local images..."
+    _dk_compose build
+  fi
+}
+
+_dk_prepare_pinned_runtime_image() {
+  _info "Building docker-proxy image..."
+  _dk_compose build docker-proxy
+
+  if _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+    _info "Pinned image already present: \033[1m$_dk_image\033[0m"
+    return 0
+  fi
+
+  _info "Pulling pinned image: \033[1m$_dk_image\033[0m"
+  if _dk_host_docker pull "$_dk_image"; then
+    return 0
+  fi
+
+  if _dk_can_build_local; then
+    _warn "Pinned image pull failed; falling back to an exact local source build for \033[1m$_dk_image\033[0m"
+    CAC_DOCKER_BUILD_LOCAL=1 _dk_build_runtime_image_locally
+    return $?
+  fi
+
+  _err "Pinned image pull failed and no local source build fallback is available"
+  return 1
+}
+
 _dk_load_env() {
   # shellcheck disable=SC1090  # dynamic env file path
   [[ -f "$_dk_env_file" ]] && set -a && source "$_dk_env_file" && set +a
@@ -3252,7 +3299,7 @@ _dk_compose_files() {
   docker_dir=$(_docker_dir)
   mode=$(_dk_get_mode)
   printf '%s ' "${_dk_compose_base[@]}"
-  if _dk_can_build_local; then
+  if _dk_should_build_local; then
     printf '%s ' "-f" "${docker_dir}/${_dk_build_file}"
   fi
   if [[ "$mode" == "local" ]]; then
@@ -3667,6 +3714,7 @@ _dk_cmd_setup() {
   _dk_write_env CAC_CONTAINER_NAME "$container_name"
   _dk_write_env CAC_CONTAINER_RUNTIME_HOSTNAME "$runtime_hostname"
   _dk_write_env CAC_DOCKER_IMAGE "$image_ref"
+  _dk_write_env CAC_DOCKER_BUILD_LOCAL "${CAC_DOCKER_BUILD_LOCAL:-0}"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
   _dk_write_env CAC_DOCKER_PROXY_NAME "$gateway_name"
   _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
@@ -3687,6 +3735,11 @@ _dk_cmd_setup() {
   _info "Mode: \033[1m${mode}\033[0m"
   _info "Data dir: \033[1m${data_dir}\033[0m"
   _info "Image: \033[1m${image_ref}\033[0m"
+  if _dk_wants_local_build; then
+    _info "Build mode: \033[1mlocal source build\033[0m"
+  else
+    _info "Build mode: \033[1mpinned image pull\033[0m"
+  fi
   _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
   [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m${child_proxy}\033[0m"
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
@@ -3698,22 +3751,10 @@ _dk_cmd_create() {
   _dk_init || return 1
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   echo ""
-  if _dk_can_build_local; then
-    if _dk_force_local_rebuild; then
-      _info "Rebuilding local images..."
-      _dk_compose build
-    elif _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
-      _info "Local image already present, refreshing docker-proxy..."
-      _dk_compose build docker-proxy
-    else
-      _info "Building local images..."
-      _dk_compose build
-    fi
+  if _dk_should_build_local; then
+    _dk_build_runtime_image_locally || return 1
   else
-    _info "Building docker-proxy image..."
-    _dk_compose build docker-proxy
-    _info "Pulling image..."
-    _dk_host_docker pull "$_dk_image"
+    _dk_prepare_pinned_runtime_image || return 1
   fi
   echo ""
   _dk_assert_docker_cli_compat || return 1
@@ -3727,7 +3768,7 @@ _dk_cmd_start() {
   _dk_load_env
   _dk_assert_docker_cli_compat || return 1
   _info "Starting container..."
-  if _dk_can_build_local; then
+  if _dk_should_build_local; then
     if _dk_force_local_rebuild; then
       _info "Rebuilding local images first..."
       _dk_compose up -d --build
@@ -3738,6 +3779,9 @@ _dk_cmd_start() {
       _dk_compose up -d
     fi
   else
+    if ! _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
+      _dk_prepare_pinned_runtime_image || return 1
+    fi
     _dk_compose up -d
   fi
   _dk_shim_up
