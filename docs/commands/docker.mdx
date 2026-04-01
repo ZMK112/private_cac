@@ -17,7 +17,7 @@ After `bash install.sh --local --yes`, Docker assets are linked into `~/.cac/doc
 |:---|:---|
 | `cac docker setup` | Configure proxy and network (interactive) |
 | `cac docker create` | Build or pull the image |
-| `cac docker rebuild` | Force-rebuild the local image |
+| `cac docker rebuild` | Force-rebuild the local image and recreate the container if it already exists |
 | `cac docker start` | Start the container |
 | `cac docker stop` | Stop the container |
 | `cac docker restart` | Restart the container |
@@ -35,11 +35,15 @@ Docker mode supports share links in addition to compact format:
 ```
 ip:port:user:pass          # compact (SOCKS5)
 host:port                  # compact (SOCKS5 hostname)
+socks5h://host:port        # explicit SOCKS5
+http://host:port           # explicit HTTP proxy
 ss://...                   # Shadowsocks
 vmess://...                # VMess
 vless://...                # VLESS
 trojan://...               # Trojan
 ```
+
+Bare `host:port` is treated as SOCKS5 in Docker mode. If your proxy is HTTP-only, enter it with `http://`.
 
 ## Network modes
 

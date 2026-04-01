@@ -20,6 +20,8 @@ All notable changes to this project are documented here. Each entry links to the
 - Fixed release/source-archive installs so `install.sh` now recognizes an extracted source archive as a valid local checkout even when generated top-level runtime files are absent, and added a versioned portable release package asset.
 - Fixed installed `cac docker` resolution so unrelated `docker/` directories under the current working directory no longer override the linked `~/.cac/docker` resources, and local Docker-mode setup now rewrites `127.0.0.1` / `localhost` proxy inputs to `host.docker.internal`.
 - Added `cac docker rebuild` to force a local Docker image rebuild explicitly, without relying on `CAC_DOCKER_REBUILD=1`.
+- Updated `cac docker rebuild` so it now recreates an existing container after rebuilding, ensuring the rebuilt image actually takes effect.
+- Updated `cac docker setup` so derived child-proxy settings refresh when the main proxy changes, and clarified that bare `host:port` inputs are treated as SOCKS5 unless `http://` is specified.
 
 **Validation and docs**
 

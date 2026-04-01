@@ -17,7 +17,7 @@ icon: "docker"
 |:---|:---|
 | `cac docker setup` | 配置代理和网络（交互式） |
 | `cac docker create` | 构建或拉取镜像 |
-| `cac docker rebuild` | 强制重建本地镜像 |
+| `cac docker rebuild` | 强制重建本地镜像；如果容器已存在则自动重建容器 |
 | `cac docker start` | 启动容器 |
 | `cac docker stop` | 停止容器 |
 | `cac docker restart` | 重启容器 |
@@ -35,11 +35,15 @@ Docker 模式除了支持紧凑格式外，还支持分享链接：
 ```
 ip:port:user:pass          # 紧凑格式（SOCKS5）
 host:port                  # 使用主机名的紧凑格式（SOCKS5）
+socks5h://host:port        # 显式 SOCKS5
+http://host:port           # 显式 HTTP 代理
 ss://...                   # Shadowsocks
 vmess://...                # VMess
 vless://...                # VLESS
 trojan://...               # Trojan
 ```
+
+在 Docker 模式里，裸 `host:port` 会按 SOCKS5 解释；如果你的代理是纯 HTTP，请明确写成 `http://...`。
 
 ## 网络模式
 

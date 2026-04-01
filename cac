@@ -3441,8 +3441,8 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy
-  proxy=$(_dk_prompt_value "Proxy URI (e.g. ss://..., ip:port:user:pass)" "$(_dk_read_env PROXY_URI)" 1) || return 1
+  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy
+  proxy=$(_dk_prompt_value "Proxy URI (SOCKS5 compact host:port or explicit http:// / socks5h://)" "$(_dk_read_env PROXY_URI)" 1) || return 1
 
   detected_mode=$(_dk_detect_mode)
   mode="$detected_mode"
@@ -3486,8 +3486,8 @@ _dk_cmd_setup() {
   runtime_hostname="${runtime_hostname:-$container_name}"
   gateway_name="${CAC_DOCKER_PROXY_NAME:-$(_dk_read_env CAC_DOCKER_PROXY_NAME)}"
   gateway_name="${gateway_name:-boris-gateway}"
-  child_proxy="${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}"
-  child_proxy="${child_proxy:-$(_dk_guess_child_proxy_url "$mode" "$proxy")}"
+  derived_child_proxy="$(_dk_guess_child_proxy_url "$mode" "$proxy")"
+  child_proxy="${derived_child_proxy:-${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}}"
   child_no_proxy="${CAC_CHILD_CONTAINER_NO_PROXY:-$(_dk_read_env CAC_CHILD_CONTAINER_NO_PROXY)}"
   child_no_proxy="${child_no_proxy:-$(_dk_default_child_no_proxy "$mode")}"
 
@@ -3610,9 +3610,11 @@ _dk_cmd_rebuild() {
   CAC_DOCKER_REBUILD=1 _dk_cmd_create || return 1
 
   echo ""
-  if [[ "$state" == "running" ]]; then
-    _warn "Container is still using the previous image until it is restarted"
-    _info "Next: \033[1mcac docker restart\033[0m"
+  if [[ "$state" == "running" || "$state" == "exited" || "$state" == "created" || "$state" == "restarting" ]]; then
+    _info "Recreating existing container to use the rebuilt image..."
+    _dk_compose up -d --force-recreate || return 1
+    _ok "Container recreated with rebuilt image"
+    _info "Next: \033[1mcac docker check\033[0m"
   else
     _info "Next: \033[1mcac docker start\033[0m"
   fi
