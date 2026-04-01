@@ -115,9 +115,9 @@ Repeatable validation steps live in the [Docker mode ops log](/guides/docker-mod
 
 1. Building and synchronizing the `ghcr.io/nmhjklnm/cac-docker:latest` image with Boris-derived templates.
 2. Starting `boris-main` and the `boris-gateway` sidecar so the workspace mapping and Docker proxy stay consistent.
-3. Running `cac docker check` to ensure `tun0` is up, DNS entries resolve through the TUN gateway, and the spoofed hostname is active. The current sandbox-only run shows DNS failing because the local SOCKS5 stub on `host.docker.internal:17890` refuses connections, so the tunnel cannot reach Google; restarting that proxy should make the check pass.
+3. Running `cac docker check` to ensure `tun0` is up, DNS/TCP/HTTP probes behave as expected, and the spoofed hostname is active.
 
-The log also captures the `sing-box` errors, the `cac-check` summary, and the exact naming rules (container names, hostname prefixes, and workspace mount) so future sessions can repeat the audit.
+The current ops log also records the validation failures that were fixed during the latest Docker hardening pass: the entrypoint restart bug, the local port-forward implementation, the `cac-check` execution path, and the validation-harness namespace/subnet collisions.
 
 Important:
 
@@ -133,7 +133,7 @@ To expose a port from the container (e.g., a dev server):
 cac docker port 6287
 ```
 
-This starts a socat/python3 relay from `localhost:6287` on the host to the container.
+In local mode, this starts a small helper container on the compose network and publishes `127.0.0.1:6287` back to the host. In remote/macvlan mode, the command still uses a host-side relay path.
 
 ## Diagnostics
 

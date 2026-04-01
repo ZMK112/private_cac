@@ -113,7 +113,7 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 cac docker port 6287
 ```
 
-这会启动一个 socat/python3 中继，将主机的 `localhost:6287` 转发到容器。
+本地模式下，这会额外启动一个 helper container，在 compose 网络内连接主容器，然后把 `127.0.0.1:6287` 正式暴露回宿主机。远程/macvlan 模式下，仍然使用宿主机侧转发链路。
 
 ## 诊断
 

@@ -1,6 +1,6 @@
 ---
 title: "Docker 模式操作记录"
-description: "记录 Docker 模式的构建、启动、检查过程以及 `boris-` 命名规范。"
+description: "记录 Docker 模式的构建、启动、检查与修复过程。"
 icon: "shield-check"
 ---
 
@@ -21,28 +21,45 @@ Docker 模式统一使用 `boris-` 前缀来替代 `cac`，所以主容器叫 `b
 
 ## 检查结果
 
-```text
-Network
-[TUN  ] ok   tun0 up (1ms)
-[DNS  ] FAIL DNS resolution failed — check DNS_SERVER
-[LEAK ] ok   DNS → 172.19.0.2 (TUN gateway, no leak) (5ms)
-```
-
-这个检查在 DNS 无法通过 `host.docker.internal:17890` 的 SOCKS5 代理时被终止（exit 137），因此后续的 TCP/HTTP/identity 信息没有打印出来。
-
-### 代理建议
-
-在宿主机上启动一个可访问的 SOCKS5 代理，再重新运行检查。例如：
+当前本地验证基线已经可以完整通过：
 
 ```bash
-cd docker
-nohup python3 -u dev-socks5.py --host 0.0.0.0 --port 17890 >/tmp/dev-socks5.log 2>&1 &
+bash scripts/validate.sh --keep-workdir
 ```
 
-如果你在 sandbox 环境里，如果 `setsid`/`nice` 不可用，`/tmp/dev-socks5.log` 会保持为空，请在真实的 macOS 主机上运行上述命令。
+截至 2026 年 4 月 1 日，最新结果为：
+
+```text
+passes:   12
+failures: 0
+warnings: 0
+```
+
+这套验证已经覆盖：
+
+- `cac docker create`
+- `cac docker start`
+- `cac docker status`
+- `cac docker check`
+- 子容器 Docker wrapper 行为
+- `cac docker port`
+- 上游代理失效后的 fail-closed 行为
+
+## 这轮验证中修掉的根因
+
+1. `docker/entrypoint.sh` 里的 `apply_cherny_identity()` 会在 `set -e` 下返回失败，导致主容器在 profile 创建后反复重启。
+2. 本地 `cac docker port` 过去依赖宿主直连容器 bridge IP，这在 Docker Desktop 场景并不稳定。
+3. `cac docker check` 过去依赖附着式 exec 路径，长时间网络探测时容易中断。
+
+当前实现对应修复为：
+
+- `apply_cherny_identity()` 使用 `mapfile` 读取全部字段，并显式返回成功
+- 本地模式改为 helper container + published localhost port
+- `cac docker check` 改为容器内后台执行 `cac-check`，再统一回读输出
 
 ## 诊断与隐私说明
 
 - 根据 ByteDance 提供的审计报告，Claude Code 会同时向 Datadog、BigQuery、GrowthBook 等渠道上报设备 ID、邮箱、系统指纹、GitHub metadata、`cch` attestation 等。Docker 模式在内层使用 `cherny.*` 模板彻底重写这些字段。
 - docker-wrapper 会注入 `CAC_CHILD_CONTAINER_PROXY_URL` 等变量到 Claude 创建的子容器，配合 TUN 网络实现 CC Gateway 式的 fail-closed 防护。
+- 在搭建重复验证流程时，还遇到了 compose project 名冲突和 bridge subnet 冲突，当前验证脚本已经分别用唯一 `COMPOSE_PROJECT_NAME` 与自动 subnet 探测处理。
 - 将这一页作为审计记录保存下来，后续可以复用相同的命名、代理与检查步骤进行复验。

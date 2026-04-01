@@ -5,6 +5,22 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## Unreleased
+<sub>2026-04-01</sub>
+
+**Docker runtime fixes**
+
+- Fixed `docker/entrypoint.sh` so Docker-mode containers no longer restart immediately after profile creation when the Chorny identity template is applied.
+- Fixed local `cac docker port` forwarding by switching Docker Desktop/local mode to a helper-container publish model instead of relying on direct host access to the container bridge IP.
+- Fixed `cac docker check` so it captures `cac-check` output from inside the container without depending on a fragile attached exec path.
+
+**Validation and docs**
+
+- Added `scripts/validate.sh` as the canonical local validation entrypoint.
+- Added CI coverage for the same validation flow and artifact upload.
+- Added validation guides in English and Chinese, updated Docker-mode ops docs, and refreshed the real-test guide.
+- Added `docker/templates/README.md` and started treating `docker/templates/cherny.*` as version-controlled runtime assets.
+
 ## v1.4.4
 <sub>2026-03-29</sub>
 

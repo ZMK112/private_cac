@@ -5,6 +5,22 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## Unreleased
+<sub>2026-04-01</sub>
+
+**Docker 运行时修复**
+
+- 修复 `docker/entrypoint.sh`，解决 Chorny 身份模板应用后主容器在 profile 创建后立即重启的问题。
+- 修复本地 `cac docker port`，Docker Desktop / 本地模式不再依赖宿主直连容器 bridge IP，而是改为 helper container + localhost publish。
+- 修复 `cac docker check`，现在会在容器内执行 `cac-check` 并回读结果，不再依赖不稳定的附着式 exec 路径。
+
+**验证体系与文档**
+
+- 新增 `scripts/validate.sh` 作为统一的本地验证入口。
+- CI 接入同一套验证流程，并上传验证产物。
+- 新增中英文 validation 文档，更新 Docker 模式操作记录，并刷新真实验证指南。
+- 新增 `docker/templates/README.md`，并将 `docker/templates/cherny.*` 明确为需要版本控制的运行时源资产。
+
 ## v1.4.4
 <sub>2026-03-29</sub>
 
