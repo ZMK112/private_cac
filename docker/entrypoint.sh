@@ -138,8 +138,9 @@ cherify_layer() {
 apply_cherny_identity() {
   local template="$CHERNY_IDENTITY_JSON" dir="$1"
   [[ ! -f "$template" ]] && return
-  local device_id email user_id session_alias
-  read -r device_id email user_id session_alias < <(
+  local values=()
+  local device_id="" email="" user_id="" session_alias=""
+  mapfile -t values < <(
     python3 - "$template" <<'PY'
 import json, sys
 data = json.load(open(sys.argv[1]))
@@ -149,6 +150,10 @@ print(data.get('user_id',''))
 print(data.get('session_alias',''))
 PY
   )
+  device_id="${values[0]:-}"
+  email="${values[1]:-}"
+  user_id="${values[2]:-}"
+  session_alias="${values[3]:-}"
   [[ -n "$device_id" ]] && {
     printf '%s\n' "$device_id" > "$dir/cherny.identity.device_id"
     printf 'export CAC_DEVICE_ID="%s"\n' "$device_id" >> /root/.cac-env
@@ -168,6 +173,7 @@ PY
     printf '%s\n' "$session_alias" > "$dir/cherny.identity.session_alias"
     printf 'export CHERNY_ID_SESSION_ALIAS="%s"\n' "$session_alias" >> /root/.cac-env
   }
+  return 0
 }
 
 apply_cherny_profile() {

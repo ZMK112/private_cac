@@ -51,9 +51,9 @@ services:
     tty: true
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "bash", "-c", "timeout 5 bash -c 'echo >/dev/tcp/google.com/443' 2>/dev/null"]
+      test: ["CMD", "bash", "-lc", "ip link show tun0 >/dev/null 2>&1 && pgrep -x sing-box >/dev/null"]
       interval: 30s
-      timeout: 10s
+      timeout: 5s
       retries: 3
       start_period: 15s
 

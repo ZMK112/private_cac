@@ -2884,9 +2884,28 @@ _dk_port_forward() {
 
   mkdir -p "$_dk_port_dir"
   local pidfile="${_dk_port_dir}/${port}.pid"
-  if [[ -f "$pidfile" ]] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    _warn "Port $port already forwarded (pid $(cat "$pidfile"))"
-    return 0
+  if [[ -f "$pidfile" ]]; then
+    local existing
+    existing=$(cat "$pidfile" 2>/dev/null || true)
+    case "$existing" in
+      pid:*)
+        if kill -0 "${existing#pid:}" 2>/dev/null; then
+          _warn "Port $port already forwarded (pid ${existing#pid:})"
+          return 0
+        fi
+        rm -f "$pidfile"
+        ;;
+      container:*)
+        if [[ "$(_dk_host_docker inspect -f '{{.State.Running}}' "${existing#container:}" 2>/dev/null || echo false)" == "true" ]]; then
+          _warn "Port $port already forwarded (container ${existing#container:})"
+          return 0
+        fi
+        rm -f "$pidfile"
+        ;;
+      *)
+        rm -f "$pidfile"
+        ;;
+    esac
   fi
 
   local cip
@@ -2898,6 +2917,41 @@ _dk_port_forward() {
   else
     cip=$(_dk_compose exec -T "$_dk_service" hostname -I 2>/dev/null | awk '{print $1}')
     [[ -z "$cip" ]] && { _err "Cannot determine container IP"; return 1; }
+  fi
+
+  if [[ "$mode" == "local" ]]; then
+    local target_name helper_name network_name helper_image gateway_name
+    target_name=$(_dk_read_env CAC_CONTAINER_NAME)
+    target_name="${target_name:-boris-main}"
+    gateway_name=$(_dk_read_env CAC_DOCKER_PROXY_NAME)
+    gateway_name="${gateway_name:-boris-gateway}"
+    helper_name="${target_name}-port-${port}"
+    network_name=$(_dk_host_docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{println $k}}{{end}}' "$target_name" 2>/dev/null | head -n1)
+    [[ -n "$network_name" ]] || { _err "Cannot determine container network"; return 1; }
+    helper_image=$(_dk_host_docker inspect -f '{{.Config.Image}}' "$gateway_name" 2>/dev/null || echo "docker-docker-proxy:latest")
+
+    _dk_host_docker rm -f "$helper_name" >/dev/null 2>&1 || true
+    if ! _dk_host_docker run -d --rm \
+      --name "$helper_name" \
+      --network "$network_name" \
+      -p "127.0.0.1:${port}:${port}" \
+      --entrypoint socat \
+      "$helper_image" \
+      "TCP-LISTEN:${port},fork,reuseaddr,bind=0.0.0.0" \
+      "TCP:${target_name}:${port}" >/dev/null; then
+      _err "Failed to create local helper container for port $port"
+      return 1
+    fi
+    echo "container:$helper_name" > "$pidfile"
+    sleep 0.5
+    if (echo >/dev/tcp/127.0.0.1/"$port") 2>/dev/null; then
+      _ok "localhost:${port} → ${target_name}:${port} (container $helper_name)"
+      return 0
+    fi
+    _dk_host_docker rm -f "$helper_name" >/dev/null 2>&1 || true
+    rm -f "$pidfile"
+    _err "Failed to forward port $port"
+    return 1
   fi
 
   if command -v socat &>/dev/null; then
@@ -2924,7 +2978,7 @@ while True:
     return 1
   fi
   local pid=$!
-  echo "$pid" > "$pidfile"
+  echo "pid:$pid" > "$pidfile"
   sleep 0.3
   if kill -0 "$pid" 2>/dev/null; then
     _ok "localhost:${port} → ${cip}:${port} (pid $pid)"
@@ -2939,7 +2993,16 @@ _dk_port_stop() {
   local port="$1"
   local pidfile="${_dk_port_dir}/${port}.pid"
   if [[ -f "$pidfile" ]]; then
-    kill "$(cat "$pidfile")" 2>/dev/null || true
+    local target
+    target=$(cat "$pidfile" 2>/dev/null || true)
+    case "$target" in
+      pid:*)
+        kill "${target#pid:}" 2>/dev/null || true
+        ;;
+      container:*)
+        _dk_host_docker rm -f "${target#container:}" >/dev/null 2>&1 || true
+        ;;
+    esac
     rm -f "$pidfile"
     _ok "Stopped forwarding port $port"
   else
@@ -2952,15 +3015,30 @@ _dk_port_list() {
   local found=0
   for pidfile in "$_dk_port_dir"/*.pid; do
     [[ -f "$pidfile" ]] || continue
-    local port pid
+    local port target
     port=$(basename "$pidfile" .pid)
-    pid=$(cat "$pidfile")
-    if kill -0 "$pid" 2>/dev/null; then
-      printf "  \033[32m●\033[0m localhost:%-6s (pid %s)\n" "$port" "$pid"
-      found=1
-    else
-      rm -f "$pidfile"
-    fi
+    target=$(cat "$pidfile" 2>/dev/null || true)
+    case "$target" in
+      pid:*)
+        if kill -0 "${target#pid:}" 2>/dev/null; then
+          printf "  \033[32m●\033[0m localhost:%-6s (pid %s)\n" "$port" "${target#pid:}"
+          found=1
+        else
+          rm -f "$pidfile"
+        fi
+        ;;
+      container:*)
+        if [[ "$(_dk_host_docker inspect -f '{{.State.Running}}' "${target#container:}" 2>/dev/null || echo false)" == "true" ]]; then
+          printf "  \033[32m●\033[0m localhost:%-6s (container %s)\n" "$port" "${target#container:}"
+          found=1
+        else
+          rm -f "$pidfile"
+        fi
+        ;;
+      *)
+        rm -f "$pidfile"
+        ;;
+    esac
   done
   [[ "$found" -eq 0 ]] && _info "No ports forwarded. Use: cac docker port <port>"
 }
@@ -2969,9 +3047,37 @@ _dk_port_stop_all() {
   mkdir -p "$_dk_port_dir"
   for pidfile in "$_dk_port_dir"/*.pid; do
     [[ -f "$pidfile" ]] || continue
-    kill "$(cat "$pidfile")" 2>/dev/null || true
+    local target
+    target=$(cat "$pidfile" 2>/dev/null || true)
+    case "$target" in
+      pid:*)
+        kill "${target#pid:}" 2>/dev/null || true
+        ;;
+      container:*)
+        _dk_host_docker rm -f "${target#container:}" >/dev/null 2>&1 || true
+        ;;
+    esac
     rm -f "$pidfile"
   done
+}
+
+_dk_run_cac_check() {
+  local out="/tmp/cac-docker-check.out"
+  local rc="/tmp/cac-docker-check.rc"
+  local status=""
+
+  _dk_compose exec -T "$_dk_service" sh -lc "rm -f '$out' '$rc'; (cac-check >'$out' 2>&1; printf '%s' \$? >'$rc') &" >/dev/null
+
+  local i
+  for i in $(seq 1 60); do
+    status=$(_dk_compose exec -T "$_dk_service" sh -lc "test -f '$rc' && cat '$rc'" 2>/dev/null || true)
+    [[ -n "$status" ]] && break
+    sleep 1
+  done
+
+  _dk_compose exec -T "$_dk_service" sh -lc "test -f '$out' && cat '$out'" 2>/dev/null || true
+  [[ -n "$status" ]] || { _err "cac-check did not finish"; return 1; }
+  [[ "$status" == "0" ]]
 }
 
 # ── Docker subcommands ───────────────────────────────────────────────
@@ -3101,7 +3207,7 @@ _dk_cmd_enter() {
 
 _dk_cmd_check() {
   _dk_init || return 1
-  _dk_compose exec "$_dk_service" cac-check
+  _dk_run_cac_check
 
   echo ""
   printf "\033[1mExit IP Comparison\033[0m\n"
