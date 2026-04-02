@@ -97,6 +97,8 @@ ssh -p 2222 cherny@127.0.0.1
 
 The published port stays localhost-only by default; it is not exposed to the rest of the LAN unless you intentionally change the port binding.
 
+Public-key auth is also left enabled for later use, but `cac` does not import any host SSH keys or mount the host `~/.ssh`. If you want key-based login later, add your own key manually inside the persisted container home, for example `/home/cherny/.ssh/authorized_keys`.
+
 ## Child containers from inside `cac`
 
 Inside the container, `docker` is a wrapper around the real Docker CLI:

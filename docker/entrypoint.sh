@@ -93,6 +93,9 @@ ensure_hostname_hosts_entry() {
 
 configure_ssh_password() {
   [[ "$CAC_ENABLE_SSH" == "1" ]] || return 0
+  mkdir -p "${PROFILE_HOME}/.ssh"
+  chmod 700 "${PROFILE_HOME}/.ssh"
+  chown "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "${PROFILE_HOME}/.ssh" 2>/dev/null || true
   printf '%s:%s\n' "$CAC_FAKE_USER" "$CAC_SSH_PASSWORD" | chpasswd
 }
 

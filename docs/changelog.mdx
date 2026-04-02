@@ -13,6 +13,7 @@ All notable changes to this project are documented here. Each entry links to the
 - Added passwordless `sudo` for the default non-root Docker persona user so manual package installs inside `cac docker` containers no longer require dropping back to a root shell.
 - Added a default Docker-mode utility baseline for data/dev workflows: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, and `unzip`.
 - Added host-to-container SSH access in Docker mode: `sshd` now starts inside the main container, publishes a localhost-only SSH endpoint by default, and enables password login for the runtime user.
+- Kept Docker-mode SSH compatible with later manual public-key login by leaving `PubkeyAuthentication` enabled, while still avoiding any host `~/.ssh` mount or automatic key import.
 - Tightened `cac docker check` so it now fails when the container exit IP geolocates to China, and verifies the Docker-mode SSH path when SSH is enabled.
 - Fixed `docker/entrypoint.sh` so Docker-mode containers no longer restart immediately after profile creation when the Chorny identity template is applied.
 - Fixed local `cac docker port` forwarding by switching Docker Desktop/local mode to a helper-container publish model instead of relying on direct host access to the container bridge IP.

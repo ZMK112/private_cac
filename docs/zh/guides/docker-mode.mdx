@@ -96,6 +96,8 @@ ssh -p 2222 cherny@127.0.0.1
 
 这个 SSH 端口默认只绑定到本机回环地址，不会主动暴露给整个局域网，除非你自己改了端口绑定。
 
+同时也保留了后续手动启用公钥登录的能力，但 `cac` 不会导入任何宿主机 SSH key，也不会挂载宿主机 `~/.ssh`。如果你以后想改成公钥登录，请自己把 `authorized_keys` 放进持久化的容器用户家目录，例如 `/home/cherny/.ssh/authorized_keys`。
+
 ## `cac` 内部启动子容器
 
 在容器里，`docker` 是对真实 Docker CLI 的一层包装：

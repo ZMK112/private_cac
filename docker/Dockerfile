@@ -58,7 +58,8 @@ RUN set -eux; \
       'PasswordAuthentication yes' \
       'KbdInteractiveAuthentication no' \
       'ChallengeResponseAuthentication no' \
-      'PubkeyAuthentication no' \
+      'PubkeyAuthentication yes' \
+      'AuthorizedKeysFile .ssh/authorized_keys' \
       "AllowUsers ${CAC_FAKE_USER}" \
       'UsePAM yes' \
       'X11Forwarding no' \

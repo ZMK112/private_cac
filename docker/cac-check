@@ -285,9 +285,10 @@ check_sshd() {
   command -v sshd >/dev/null 2>&1 || return 1
   pgrep -x sshd >/dev/null 2>&1 || return 1
   grep -q '^PasswordAuthentication yes$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
-  grep -q '^PubkeyAuthentication no$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
+  grep -q '^PubkeyAuthentication yes$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
+  grep -q '^AuthorizedKeysFile .ssh/authorized_keys$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
   timeout 3 bash -lc "echo >/dev/tcp/127.0.0.1/${port}" 2>/dev/null || return 1
-  echo "sshd listening on ${port} with password auth"
+  echo "sshd listening on ${port} with password+pubkey auth"
 }
 
 check_container_traces() {
