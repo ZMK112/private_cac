@@ -733,7 +733,7 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref
+  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref ssh_enabled ssh_port ssh_password
   proxy=$(_dk_prompt_value "Proxy URI (SOCKS5 compact host:port or explicit http:// / socks5h://)" "$(_dk_read_env PROXY_URI)" 1) || return 1
 
   detected_mode=$(_dk_detect_mode)
@@ -778,6 +778,12 @@ _dk_cmd_setup() {
   runtime_hostname="${runtime_hostname:-$container_name}"
   gateway_name="${CAC_DOCKER_PROXY_NAME:-$(_dk_read_env CAC_DOCKER_PROXY_NAME)}"
   gateway_name="${gateway_name:-boris-gateway}"
+  ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
+  ssh_enabled="${ssh_enabled:-1}"
+  ssh_port="${CAC_HOST_SSH_PORT:-$(_dk_read_env CAC_HOST_SSH_PORT)}"
+  ssh_port="${ssh_port:-2222}"
+  ssh_password="${CAC_SSH_PASSWORD:-$(_dk_read_env CAC_SSH_PASSWORD)}"
+  ssh_password="${ssh_password:-cherny}"
   image_ref="${CAC_DOCKER_IMAGE:-$(_dk_read_env CAC_DOCKER_IMAGE)}"
   if [[ -z "$image_ref" ]]; then
     image_ref="$(_dk_default_image_ref)"
@@ -814,6 +820,9 @@ _dk_cmd_setup() {
   _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://${gateway_name}:2375"
   _dk_write_env CAC_CHILD_CONTAINER_PROXY_URL "$child_proxy"
   _dk_write_env CAC_CHILD_CONTAINER_NO_PROXY "$child_no_proxy"
+  _dk_write_env CAC_ENABLE_SSH "$ssh_enabled"
+  _dk_write_env CAC_HOST_SSH_PORT "$ssh_port"
+  _dk_write_env CAC_SSH_PASSWORD "$ssh_password"
   if [[ -f "$_dk_env_file" ]]; then
     local cleanup_tmp
     cleanup_tmp=$(mktemp)
@@ -833,6 +842,9 @@ _dk_cmd_setup() {
   fi
   _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
   [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m${child_proxy}\033[0m"
+  if [[ "$ssh_enabled" != "0" ]]; then
+    _info "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
+  fi
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
   _info "Container Docker API: \033[1mtcp://${gateway_name}:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
@@ -855,6 +867,7 @@ _dk_cmd_create() {
 
 _dk_cmd_start() {
   _dk_init || return 1
+  local ssh_enabled ssh_port
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
   _dk_assert_docker_cli_compat || return 1
@@ -880,9 +893,16 @@ _dk_cmd_start() {
   local state
   if _dk_wait_runtime_ready; then
     state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "unknown")
+    ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
+    ssh_enabled="${ssh_enabled:-1}"
+    ssh_port="${CAC_HOST_SSH_PORT:-$(_dk_read_env CAC_HOST_SSH_PORT)}"
+    ssh_port="${ssh_port:-2222}"
     _ok "Container running"
     _info "Enter with:   \033[1mcac docker enter\033[0m"
     _info "Check with:   \033[1mcac docker check\033[0m"
+    if [[ "$ssh_enabled" != "0" ]]; then
+      _info "SSH with:     \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
+    fi
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
     _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_current 2>/dev/null || echo unset))"
   else
@@ -940,7 +960,30 @@ _dk_cmd_enter() {
 
 _dk_cmd_check() {
   _dk_init || return 1
-  _dk_run_cac_check
+  local rc=0 ssh_enabled ssh_port
+  _dk_run_cac_check || rc=1
+  ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
+  ssh_enabled="${ssh_enabled:-1}"
+  ssh_port="${CAC_HOST_SSH_PORT:-$(_dk_read_env CAC_HOST_SSH_PORT)}"
+  ssh_port="${ssh_port:-2222}"
+
+  if [[ "$ssh_enabled" != "0" ]]; then
+    printf "\033[1mHost Access\033[0m\n"
+    if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 "${ssh_port}" >/dev/null 2>&1; then
+      _ok "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
+    elif python3 - "$ssh_port" <<'PY' >/dev/null 2>&1
+import socket, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=3)
+s.close()
+PY
+    then
+      _ok "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
+    else
+      _err "SSH port 127.0.0.1:${ssh_port} is not reachable"
+      rc=1
+    fi
+    echo ""
+  fi
 
   echo ""
   printf "\033[1mExit IP Comparison\033[0m\n"
@@ -973,6 +1016,7 @@ _dk_cmd_check() {
     _ok "Container can reach internet, host cannot — proxy is working"
   fi
   echo ""
+  return "$rc"
 }
 
 _dk_cmd_port() {
@@ -1024,15 +1068,20 @@ _dk_cmd_status() {
     local cip; cip=$(_dk_read_env MACVLAN_IP)
     [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
   fi
-  local workspace_host child_net docker_host child_proxy
+  local workspace_host child_net docker_host child_proxy ssh_enabled ssh_port
   workspace_host=$(_dk_workspace_host_current 2>/dev/null || echo "")
   child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
   docker_host=$(_dk_read_env CAC_CONTAINER_DOCKER_HOST)
   child_proxy=$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)
+  ssh_enabled=$(_dk_read_env CAC_ENABLE_SSH)
+  ssh_enabled="${ssh_enabled:-1}"
+  ssh_port=$(_dk_read_env CAC_HOST_SSH_PORT)
+  ssh_port="${ssh_port:-2222}"
   [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
   [[ -n "$docker_host" ]] && printf "  Container Docker API: %s\n" "$docker_host"
   [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
   [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $child_proxy"
+  [[ "$ssh_enabled" != "0" ]] && printf "  SSH:        ssh -p %s %s@127.0.0.1\n" "$ssh_port" "${CAC_FAKE_USER:-cherny}"
 
   local state
   state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")

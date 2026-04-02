@@ -10,6 +10,9 @@ CHERNY_IDENTITY_JSON="${CHERNY_TEMPLATE_DIR}/cherny.identity.json"
 CHERNY_ENV_JSON="${CHERNY_TEMPLATE_DIR}/cherny.env.json"
 CHERNY_PROMPT_JSON="${CHERNY_TEMPLATE_DIR}/cherny.prompt.json"
 CHERNY_TELEMETRY_JSON="${CHERNY_TEMPLATE_DIR}/cherny.telemetry.json"
+CAC_ENABLE_SSH="${CAC_ENABLE_SSH:-1}"
+CAC_SSH_PASSWORD="${CAC_SSH_PASSWORD:-cherny}"
+CAC_SSH_CONTAINER_PORT="${CAC_SSH_CONTAINER_PORT:-22}"
 CAC_FAKE_USER="${CAC_FAKE_USER:-cherny}"
 CAC_FAKE_UID="${CAC_FAKE_UID:-1001}"
 CAC_FAKE_GID="${CAC_FAKE_GID:-1001}"
@@ -79,6 +82,32 @@ sync_shell_rc() {
   grep -q 'docker-real' /root/.bashrc 2>/dev/null || \
     echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.bashrc
   printf '[ -f "%s" ] && . "%s"\n' "$CAC_RUNTIME_ENV_FILE" "$CAC_RUNTIME_ENV_FILE" > /etc/profile.d/cac-env.sh
+}
+
+ensure_hostname_hosts_entry() {
+  local host_name="${1:-}"
+  [[ -n "$host_name" ]] || return 0
+  grep -qE "^[[:space:]]*127\\.0\\.0\\.1[[:space:]].*([[:space:]]|^)${host_name}([[:space:]]|$)" /etc/hosts 2>/dev/null && return 0
+  printf '127.0.0.1 %s\n' "$host_name" >> /etc/hosts
+}
+
+configure_ssh_password() {
+  [[ "$CAC_ENABLE_SSH" == "1" ]] || return 0
+  printf '%s:%s\n' "$CAC_FAKE_USER" "$CAC_SSH_PASSWORD" | chpasswd
+}
+
+start_sshd() {
+  [[ "$CAC_ENABLE_SSH" == "1" ]] || return 0
+  command -v sshd >/dev/null 2>&1 || {
+    echo "CAC_ENABLE_SSH=1 but sshd is not installed" >&2
+    exit 1
+  }
+
+  mkdir -p /run/sshd
+  chmod 0755 /run/sshd
+  ssh-keygen -A >/dev/null 2>&1 || true
+  configure_ssh_password
+  pgrep -x sshd >/dev/null 2>&1 || /usr/sbin/sshd -p "$CAC_SSH_CONTAINER_PORT"
 }
 
 CURRENT_RUNTIME_UID="$CAC_FAKE_UID"
@@ -501,6 +530,7 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   esac
   hostname "$CAC_HOSTNAME" 2>/dev/null || true
   printf '%s\n' "$CAC_HOSTNAME" > /etc/hostname 2>/dev/null || true
+  ensure_hostname_hosts_entry "$CAC_HOSTNAME"
 
   {
     append_runtime_export CAC_HOSTNAME "$CAC_HOSTNAME"
@@ -587,6 +617,7 @@ else
 fi
 
 wait_for_docker_host
+start_sshd
 
 _cleanup() {
   [[ -n "$_SINGBOX_PID" ]] && kill -TERM "$_SINGBOX_PID" 2>/dev/null && wait "$_SINGBOX_PID" 2>/dev/null || true

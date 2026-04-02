@@ -47,7 +47,7 @@ run_check() {
     ms=$(( (end - start) / 1000000 ))
     printf "[%-5s] $PASS  %s (%dms)\n" "$label" "$output" "$ms"
   else
-    printf "[%-5s] $FAIL  %s\n" "$label" "$hint"
+    printf "[%-5s] $FAIL  %s\n" "$label" "${output:-$hint}"
     errors=$((errors + 1))
   fi
 }
@@ -106,7 +106,26 @@ check_geo() {
   local tz="${TZ:-not set}"
   local lang="${LANG:-not set}"
   local accept="${ACCEPT_LANGUAGE:-not set}"
-  echo "TZ=$tz  LANG=$lang  Accept=$accept"
+  local geo
+  geo="$(python3 - <<'PY'
+from ccimage.geo import detect
+info = detect() or {}
+print("|".join([
+    info.get("country_code", ""),
+    info.get("country", ""),
+    info.get("ip", ""),
+]))
+PY
+  )" || return 1
+
+  local country_code country_name exit_ip
+  IFS='|' read -r country_code country_name exit_ip <<<"$geo"
+  [[ -n "$country_code" ]] || return 1
+  if [[ "$country_code" == "CN" ]]; then
+    echo "CC=CN (${country_name:-China}) exit=${exit_ip:-unknown} TZ=$tz LANG=$lang Accept=$accept"
+    return 1
+  fi
+  echo "CC=${country_code} (${country_name:-unknown}) exit=${exit_ip:-unknown} TZ=$tz LANG=$lang Accept=$accept"
 }
 
 check_workspace_write() {
@@ -253,6 +272,24 @@ check_pid1_user() {
   echo "pid1 uid=${actual_uid} gid=${actual_gid}"
 }
 
+check_sudo_access() {
+  local sudo_uid
+  command -v sudo >/dev/null 2>&1 || return 1
+  sudo_uid="$(sudo -n id -u 2>/dev/null || true)"
+  [[ "$sudo_uid" == "0" ]] || return 1
+  echo "passwordless sudo available"
+}
+
+check_sshd() {
+  local port="${CAC_SSH_CONTAINER_PORT:-22}"
+  command -v sshd >/dev/null 2>&1 || return 1
+  pgrep -x sshd >/dev/null 2>&1 || return 1
+  grep -q '^PasswordAuthentication yes$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
+  grep -q '^PubkeyAuthentication no$' /etc/ssh/sshd_config.d/cac.conf 2>/dev/null || return 1
+  timeout 3 bash -lc "echo >/dev/tcp/127.0.0.1/${port}" 2>/dev/null || return 1
+  echo "sshd listening on ${port} with password auth"
+}
+
 check_container_traces() {
   local cgroup_text mountinfo_text
   [ ! -e /.dockerenv ] || return 1
@@ -282,6 +319,8 @@ run_check "CAC"   "cac profile/runtime missing — restart the Docker stack" che
 run_check "HOST"  "Hostname not spoofed" check_hostname
 run_check "USER"  "User/home persona not spoofed" check_persona
 run_check "PID1"  "Main process still running as root" check_pid1_user
+run_check "SUDO"  "Runtime user cannot sudo without a password" check_sudo_access
+run_check "SSHD"  "SSH server is not listening inside the container" check_sshd
 run_check "UNAME" "Kernel version not spoofed" check_kernel_mask
 run_check "DIST"  "Linux distro info not spoofed" check_distro_mask
 run_check "TRACE" "Container markers still visible" check_container_traces

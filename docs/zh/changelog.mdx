@@ -10,6 +10,10 @@ description: 版本发布历史和重要变更
 
 **Docker 运行时修复**
 
+- 为 Docker 默认的非 root persona 用户补充了免密码 `sudo`，现在在 `cac docker` 容器里手动安装软件时不需要再退回 root shell。
+- 为 Docker 模式默认补了一组常用数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`。
+- 为 Docker 模式补上宿主机直连 SSH：主容器现在会启动 `sshd`，默认发布一个仅监听 localhost 的 SSH 入口，并为运行用户开启密码登录。
+- 收紧 `cac docker check`：现在如果容器出口 IP 地区判定为中国会直接失败；在启用 SSH 时还会额外校验 Docker 模式的 SSH 连通性。
 - 修复 `docker/entrypoint.sh`，解决 Chorny 身份模板应用后主容器在 profile 创建后立即重启的问题。
 - 修复本地 `cac docker port`，Docker Desktop / 本地模式不再依赖宿主直连容器 bridge IP，而是改为 helper container + localhost publish。
 - 修复 `cac docker check`，现在会在容器内执行 `cac-check` 并回读结果，不再依赖不稳定的附着式 exec 路径。

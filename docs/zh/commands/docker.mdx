@@ -60,4 +60,5 @@ trojan://...               # Trojan
 - `setup` 向导在正常情况下只会询问代理，部署模式会自动检测，其他启动所需变量会自动写入默认值；只有远程模式的 macvlan 自动探测失败时，才会继续询问网络参数。
 - 在本地 Docker Desktop 模式下，如果你输入的是 `127.0.0.1:port` 或 `localhost:port`，`setup` 会自动改写成 `host.docker.internal:port`。
 - `cac docker enter` 会进入主容器的 shell，里面已经准备好 `claude`、`cac` 和 `docker`。
-- `cac docker check` 只校验主容器的 TUN 代理路径。子容器默认走宿主 Docker 网络，除非你显式注入代理环境变量。
+- `cac docker check` 现在会校验主容器的 TUN 代理路径、检测出口 IP 地区并在中国出口时直接报错，同时在启用 SSH 时检查宿主机侧发布的 SSH 端口。
+- Docker 模式默认会把 SSH 发布到 `127.0.0.1:${CAC_HOST_SSH_PORT:-2222}`，宿主机可以直接用 `ssh -p 2222 cherny@127.0.0.1` 连接主容器；默认密码是 `cherny`，除非你显式改了 `CAC_SSH_PASSWORD`。

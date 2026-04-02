@@ -19,6 +19,9 @@ cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 ```
 
 执行 `cac docker start` 后，宿主当前目录会挂载到主容器内的 `/workspace`。
+默认运行用户仍然是非 root，但现在带有免密码 `sudo`，方便你在容器内临时安装额外软件或做一次性维护。
+基础镜像也会默认预装一组常用的数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`。
+Docker 模式默认还会把 SSH 发布到 `127.0.0.1:2222`，宿主机可以直接密码登录主容器，不需要额外导入公钥。
 
 ## 设置
 
@@ -79,6 +82,20 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 
 `/workspace` 会从你执行 `cac docker start` 时所在的宿主目录挂载进容器。如果 Claude Code 需要启动带 bind mount 的子容器，应当在你希望暴露的项目根目录下启动 Docker 模式。
 
+## 运行用户
+
+主容器里的交互 shell 默认使用规范化后的非 root persona 用户（默认是 `cherny`）。这个用户已经配置为免密码 `sudo`，因此像 `sudo apt-get update`、`sudo apt-get install ...` 这类临时维护命令可以直接执行，而不需要把默认运行模型改回 root。
+
+## SSH 访问
+
+Docker 模式会在主容器里启动 `sshd`，并默认把它发布到宿主机的 `127.0.0.1:${CAC_HOST_SSH_PORT:-2222}`。运行用户开启了密码登录，默认密码是 `cherny`；如果你需要改掉它，可以在 `docker/.env` 里覆盖 `CAC_SSH_PASSWORD`。因此常见用法就是：
+
+```bash
+ssh -p 2222 cherny@127.0.0.1
+```
+
+这个 SSH 端口默认只绑定到本机回环地址，不会主动暴露给整个局域网，除非你自己改了端口绑定。
+
 ## `cac` 内部启动子容器
 
 在容器里，`docker` 是对真实 Docker CLI 的一层包装：
@@ -121,4 +138,4 @@ cac docker port 6287
 cac docker check
 ```
 
-检查 TUN 状态、DNS、TCP/HTTP 连通性、出口 IP、泄露检测和身份伪装。
+检查 TUN 状态、DNS、TCP/HTTP 连通性、出口 IP、泄露检测、非中国出口地区、SSH 可用性和身份伪装。

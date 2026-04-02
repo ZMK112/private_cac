@@ -24,8 +24,8 @@ RUN set -eux; \
     export ALL_PROXY="${BUILD_PROXY:-}" all_proxy="${BUILD_PROXY:-}"; \
     apt-get update && apt-get install -y --no-install-recommends \
       build-essential ca-certificates curl git gosu iproute2 \
-      locales nftables procps python3 python3-venv docker.io \
-      openssl util-linux uuid-runtime tzdata \
+      jq fd-find locales nftables procps python3 python3-venv docker.io \
+      openssh-server openssl ripgrep sqlite3 sudo tree unzip util-linux uuid-runtime zip tzdata \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/^# *\(en_US\|en_GB\|ja_JP\|ko_KR\|zh_CN\|zh_TW\|de_DE\|fr_FR\)\.UTF-8/\1.UTF-8/' /etc/locale.gen \
     && locale-gen \
@@ -41,12 +41,29 @@ RUN set -eux; \
     && $CURL -fsSL "https://download.docker.com/linux/static/stable/${DOCKER_ARCH}/docker-${DOCKER_CLI_VERSION}.tgz" \
        | tar xzO docker/docker > /usr/local/bin/docker-real \
     && chmod +x /usr/local/bin/docker-real \
+    && ln -sf /usr/bin/fdfind /usr/local/bin/fd \
     && /usr/local/bin/docker-real --version | grep -F "Docker version ${DOCKER_CLI_VERSION}" >/dev/null
 
 RUN set -eux; \
     getent group "${CAC_FAKE_GID}" >/dev/null || groupadd -g "${CAC_FAKE_GID}" "${CAC_FAKE_USER}"; \
     id -u "${CAC_FAKE_USER}" >/dev/null 2>&1 || useradd -m -u "${CAC_FAKE_UID}" -g "${CAC_FAKE_GID}" -s /bin/bash "${CAC_FAKE_USER}"; \
-    mkdir -p /home/"${CAC_FAKE_USER}"/.local/bin
+    usermod -aG sudo "${CAC_FAKE_USER}"; \
+    mkdir -p /home/"${CAC_FAKE_USER}"/.local/bin; \
+    mkdir -p /run/sshd /etc/ssh/sshd_config.d; \
+    printf '%s ALL=(ALL) NOPASSWD:ALL\n' "${CAC_FAKE_USER}" > /etc/sudoers.d/90-cac-runtime-user; \
+    chmod 0440 /etc/sudoers.d/90-cac-runtime-user; \
+    printf '%s\n' \
+      'Port 22' \
+      'PermitRootLogin no' \
+      'PasswordAuthentication yes' \
+      'KbdInteractiveAuthentication no' \
+      'ChallengeResponseAuthentication no' \
+      'PubkeyAuthentication no' \
+      "AllowUsers ${CAC_FAKE_USER}" \
+      'UsePAM yes' \
+      'X11Forwarding no' \
+      'PrintMotd no' \
+      > /etc/ssh/sshd_config.d/cac.conf
 
 # Claude Code CLI
 # install.sh internally uses curl — needs ALL_PROXY so inner downloads also go through proxy
@@ -102,6 +119,8 @@ COPY docker/cac-check /usr/local/bin/cac-check
 COPY docker/docker-wrapper.sh /usr/local/bin/docker
 COPY docker/templates /usr/local/share/cherny
 RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker
+
+EXPOSE 22
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["tail", "-f", "/dev/null"]

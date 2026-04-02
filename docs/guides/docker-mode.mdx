@@ -19,6 +19,9 @@ cac docker enter     # shell in — claude + cac ready
 ```
 
 After `cac docker start`, the current host directory is mounted to `/workspace` inside the main container.
+The default runtime user remains non-root, but now has passwordless `sudo` for ad hoc package installs and one-off maintenance inside the container.
+The base image also preinstalls a small data/dev CLI set: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, and `unzip`.
+Docker mode also publishes an SSH endpoint on `127.0.0.1:2222` by default so the host can connect straight into the main container without extra key setup.
 
 ## Setup
 
@@ -79,6 +82,20 @@ The bootstrap identity always uses the Asia/Tokyo timezone and `ja_JP.UTF-8` loc
 `/root` and `/home` are bind-mounted to the Docker resource directory's `data/` folder on the host. Your Claude Code sessions, settings, and work files survive container restarts.
 
 `/workspace` is bind-mounted from the directory where you ran `cac docker start`. If Claude Code needs to start child containers with bind mounts, start Docker mode from the project root you want exposed inside `/workspace`.
+
+## Runtime user
+
+The main shell inside the container runs as the canonical non-root persona user (`cherny` by default). That user has passwordless `sudo`, so commands like `sudo apt-get update` and `sudo apt-get install ...` work without switching the default runtime model back to root.
+
+## SSH access
+
+Docker mode starts `sshd` inside the main container and publishes it to `127.0.0.1:${CAC_HOST_SSH_PORT:-2222}` on the host. Password login is enabled for the runtime user, and the default password is `cherny` unless you override `CAC_SSH_PASSWORD` in `docker/.env`, so the common path is:
+
+```bash
+ssh -p 2222 cherny@127.0.0.1
+```
+
+The published port stays localhost-only by default; it is not exposed to the rest of the LAN unless you intentionally change the port binding.
 
 ## Child containers from inside `cac`
 
@@ -141,4 +158,4 @@ In local mode, this starts a small helper container on the compose network and p
 cac docker check
 ```
 
-Checks TUN status, DNS, TCP/HTTP connectivity, exit IP, leak detection, and identity spoofing.
+Checks TUN status, DNS, TCP/HTTP connectivity, exit IP, leak detection, non-China exit geolocation, SSH availability, and identity spoofing.
