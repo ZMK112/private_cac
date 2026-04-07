@@ -1,0 +1,21 @@
+#!/command/with-contenv bash
+set -euo pipefail
+
+if [[ "${CAC_ENABLE_WEB:-1}" != "1" ]]; then
+  exec sleep infinity
+fi
+
+if [[ -f /etc/cac-cloudcli.env ]]; then
+  # shellcheck disable=SC1091
+  source /etc/cac-cloudcli.env
+fi
+
+export HOME="${HOME:-/home/cherny}"
+export WORKSPACES_ROOT="${WORKSPACES_ROOT:-/workspace}"
+export DISPLAY="${DISPLAY:-:99}"
+export DATABASE_PATH="${DATABASE_PATH:-${HOME}/.cloudcli/auth.db}"
+export CLOUDCLI_DISABLE_UPDATE_CHECK="${CLOUDCLI_DISABLE_UPDATE_CHECK:-1}"
+export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--no-deprecation"
+
+cd /workspace
+exec cloudcli --port "${CAC_WEB_PORT:-3001}"

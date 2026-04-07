@@ -5,6 +5,8 @@ SINGBOX_ENABLE="${SINGBOX_ENABLE:-1}"
 DISABLE_IPV6="${DISABLE_IPV6:-1}"
 HEALTHCHECK="${HEALTHCHECK:-1}"
 CAC_PROFILE="${CAC_PROFILE:-default}"
+CAC_ENABLE_WEB="${CAC_ENABLE_WEB:-1}"
+CAC_WEB_PORT="${CAC_WEB_PORT:-3001}"
 CHERNY_TEMPLATE_DIR="${CHERNY_TEMPLATE_DIR:-/usr/local/share/cherny}"
 CHERNY_IDENTITY_JSON="${CHERNY_TEMPLATE_DIR}/cherny.identity.json"
 CHERNY_ENV_JSON="${CHERNY_TEMPLATE_DIR}/cherny.env.json"
@@ -33,6 +35,7 @@ CAC_RUNTIME_ENV_FILE="${PROFILE_HOME}/.cac-env"
 PROFILE_BASHRC="${PROFILE_HOME}/.bashrc"
 PROFILE_PROFILE="${PROFILE_HOME}/.profile"
 PROFILE_BASH_PROFILE="${PROFILE_HOME}/.bash_profile"
+CAC_CLOUDCLI_ENV_FILE="/etc/cac-cloudcli.env"
 
 unset ALL_PROXY HTTP_PROXY HTTPS_PROXY all_proxy http_proxy https_proxy \
       NO_PROXY no_proxy 2>/dev/null || true
@@ -45,6 +48,26 @@ append_runtime_export() {
 
 append_runtime_unset() {
   printf 'unset %s\n' "$1" >> "$CAC_RUNTIME_ENV_FILE"
+}
+
+normalize_proxy_for_cac() {
+  local raw="${1:-}"
+  [[ -n "$raw" ]] || return 0
+
+  if [[ "$raw" != *"://"* ]]; then
+    local h="" p="" u="" pw=""
+    IFS=: read -r h p u pw <<< "$raw"
+    if [[ -n "$h" && -n "$p" ]]; then
+      if [[ -n "$u" ]]; then
+        printf 'socks5://%s:%s@%s:%s\n' "$u" "$pw" "$h" "$p"
+      else
+        printf 'socks5://%s:%s\n' "$h" "$p"
+      fi
+    fi
+    return 0
+  fi
+
+  printf '%s\n' "$raw"
 }
 
 ensure_profile_home() {
@@ -82,6 +105,67 @@ sync_shell_rc() {
   grep -q 'docker-real' /root/.bashrc 2>/dev/null || \
     echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.bashrc
   printf '[ -f "%s" ] && . "%s"\n' "$CAC_RUNTIME_ENV_FILE" "$CAC_RUNTIME_ENV_FILE" > /etc/profile.d/cac-env.sh
+}
+
+prepare_cloudcli_home_mapping() {
+  local env_dir="${1:-}"
+  [[ "$CAC_ENABLE_WEB" == "1" ]] || return 0
+  [[ -n "$env_dir" ]] || return 0
+  [[ -d "${env_dir}/.claude" ]] || return 0
+
+  local home_claude="${PROFILE_HOME}/.claude"
+  local target="${env_dir}/.claude"
+  local backup="${PROFILE_HOME}/.claude.cac-home-backup"
+
+  mkdir -p "${PROFILE_HOME}/.cloudcli"
+
+  if [[ -L "$home_claude" ]]; then
+    local current_target=""
+    current_target="$(readlink "$home_claude" || true)"
+    if [[ "$current_target" != "$target" ]]; then
+      rm -f "$home_claude"
+      ln -s "$target" "$home_claude"
+    fi
+  elif [[ -e "$home_claude" ]]; then
+    if [[ ! -e "$backup" ]]; then
+      mv "$home_claude" "$backup"
+    else
+      rm -rf "$home_claude"
+    fi
+    ln -s "$target" "$home_claude"
+  else
+    ln -s "$target" "$home_claude"
+  fi
+
+  chown -h "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "$home_claude" 2>/dev/null || true
+  chown -R "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "${PROFILE_HOME}/.cloudcli" 2>/dev/null || true
+}
+
+prepare_cloudcli_env_file() {
+  [[ "$CAC_ENABLE_WEB" == "1" ]] || return 0
+  /usr/local/bin/cloudcli-env.sh
+}
+
+ensure_x11_socket_dir() {
+  [[ "$CAC_ENABLE_WEB" == "1" ]] || return 0
+  mkdir -p /tmp/.X11-unix
+  chmod 1777 /tmp/.X11-unix 2>/dev/null || true
+}
+
+sync_active_proxy_file() {
+  local env_dir="${1:-}"
+  [[ -n "$env_dir" ]] || return 0
+  mkdir -p "$env_dir"
+
+  local proxy_value="none"
+  if [[ -n "${PROXY_URI:-}" ]]; then
+    local normalized=""
+    normalized="$(normalize_proxy_for_cac "$PROXY_URI" || true)"
+    [[ -n "$normalized" ]] && proxy_value="$normalized"
+  fi
+
+  printf '%s\n' "$proxy_value" > "$env_dir/proxy"
+  chown "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "$env_dir/proxy" 2>/dev/null || true
 }
 
 ensure_hostname_hosts_entry() {
@@ -445,15 +529,6 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
     echo "Creating cac profile: $CAC_PROFILE"
     mkdir -p "$_env_dir"
 
-    _proxy_for_cac=""
-    if [[ -n "${PROXY_URI:-}" ]] && [[ "$PROXY_URI" != *"://"* ]]; then
-      IFS=: read -r _h _p _u _pw <<< "$PROXY_URI"
-      _proxy_for_cac="socks5://${_u:+$_u:$_pw@}$_h:$_p"
-    elif [[ -n "${PROXY_URI:-}" ]]; then
-      _proxy_for_cac="$PROXY_URI"
-    fi
-    echo "${_proxy_for_cac:-none}" > "$_env_dir/proxy"
-
     # Generate identity
     uuidgen | tr '[:lower:]' '[:upper:]'           > "$_env_dir/uuid"
     uuidgen | tr '[:upper:]' '[:lower:]'           > "$_env_dir/stable_id"
@@ -498,6 +573,7 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   printf '%s\n' "$CAC_FAKE_PROC_VERSION" > "$_env_dir/proc_version"
   printf '%s\n' "$CAC_FAKE_CGROUP_TEXT" > "$_env_dir/cgroup_text"
   printf '%s\n' "$CAC_FAKE_MOUNTINFO_TEXT" > "$_env_dir/mountinfo_text"
+  sync_active_proxy_file "$_env_dir"
 
   # Activate profile
   echo "$CAC_PROFILE" > "$CAC_DIR/current"
@@ -596,6 +672,14 @@ if [[ "$SINGBOX_ENABLE" == "1" ]]; then
   append_runtime_export CAC_EFFECTIVE_UID "$CURRENT_RUNTIME_UID"
   append_runtime_export CAC_EFFECTIVE_GID "$CURRENT_RUNTIME_GID"
   append_runtime_export CAC_RUNTIME_USER "$CAC_FAKE_USER"
+  append_runtime_export CAC_ENABLE_WEB "$CAC_ENABLE_WEB"
+  append_runtime_export CAC_WEB_PORT "$CAC_WEB_PORT"
+  append_runtime_export DISPLAY "${DISPLAY:-:99}"
+  append_runtime_export WORKSPACES_ROOT "/workspace"
+
+  prepare_cloudcli_home_mapping "$_env_dir"
+  prepare_cloudcli_env_file
+  ensure_x11_socket_dir
 
   [[ "$HEALTHCHECK" == "1" ]] && echo "Startup checks available via: cac-check"
 
@@ -627,4 +711,4 @@ _cleanup() {
 }
 trap _cleanup EXIT INT TERM
 
-exec_as_runtime_user "$@"
+exec_as_runtime_user /init "$@"

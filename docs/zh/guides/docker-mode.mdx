@@ -20,7 +20,7 @@ cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 
 执行 `cac docker start` 后，宿主当前目录会挂载到主容器内的 `/workspace`。
 默认运行用户仍然是非 root，但现在带有免密码 `sudo`，方便你在容器内临时安装额外软件或做一次性维护。
-基础镜像也会默认预装一组常用的数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`。
+基础镜像也会默认预装一组更实用的常用数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`，以及 `vim`、`tmux`、`less`、`bat` 这类终端常用工具。
 Docker 模式默认还会把 SSH 发布到 `127.0.0.1:2222`，宿主机可以直接密码登录主容器，不需要额外导入公钥。
 
 ## 设置
@@ -88,13 +88,13 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 
 ## SSH 访问
 
-Docker 模式会在主容器里启动 `sshd`，并默认把它发布到宿主机的 `127.0.0.1:${CAC_HOST_SSH_PORT:-2222}`。运行用户开启了密码登录，默认密码是 `cherny`；如果你需要改掉它，可以在 `docker/.env` 里覆盖 `CAC_SSH_PASSWORD`。因此常见用法就是：
+Docker 模式会在主容器里启动 `sshd`，并默认把它发布到宿主机的 `0.0.0.0:${CAC_HOST_SSH_PORT:-2222}`。运行用户开启了密码登录，默认密码是 `cherny`；如果你需要改掉它，可以在 `docker/.env` 里覆盖 `CAC_SSH_PASSWORD`。因此常见用法就是：
 
 ```bash
-ssh -p 2222 cherny@127.0.0.1
+ssh -p 2222 cherny@<宿主机IP>
 ```
 
-这个 SSH 端口默认只绑定到本机回环地址，不会主动暴露给整个局域网，除非你自己改了端口绑定。
+如果你要改回仅本机访问，请在 `docker/.env` 里设置 `CAC_HOST_SSH_BIND=127.0.0.1` 后重启栈。
 
 同时也保留了后续手动启用公钥登录的能力，但 `cac` 不会导入任何宿主机 SSH key，也不会挂载宿主机 `~/.ssh`。如果你以后想改成公钥登录，请自己把 `authorized_keys` 放进持久化的容器用户家目录，例如 `/home/cherny/.ssh/authorized_keys`。
 

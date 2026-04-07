@@ -1,0 +1,8 @@
+.git
+node_modules
+dist
+docker/vendor/cloudcli/upstream/.git
+docker/vendor/cloudcli/upstream/node_modules
+docker/vendor/cloudcli/upstream/dist
+docker/.env
+docker/.env.example

@@ -8,9 +8,11 @@ DOCKER_WORKTREE=""
 COMPOSE_PROJECT_NAME="cacvalidate$$"
 CONTAINER_NAME=""
 GATEWAY_NAME=""
-IMAGE_NAME="cac-docker-validate:latest"
+IMAGE_NAME="cac-docker-validate:vlocal"
 PROXY_PID=""
 PROXY_PORT=""
+SSH_PORT=""
+WEB_PORT=""
 CONTROL_SUBNET=""
 RUN_DOCKER=true
 KEEP_WORKDIR=false
@@ -172,6 +174,10 @@ find_free_port() {
     echo "$PROXY_PORT"
     return 0
   fi
+  random_free_port
+}
+
+random_free_port() {
   python3 - <<'PY'
 import socket
 s = socket.socket()
@@ -307,6 +313,14 @@ prepare_docker_worktree() {
   mkdir -p "$DOCKER_WORKTREE/docker/data/root" "$DOCKER_WORKTREE/docker/data/home"
 
   PROXY_PORT="$(find_free_port)"
+  SSH_PORT="$(random_free_port)"
+  while [[ "$SSH_PORT" == "$PROXY_PORT" ]]; do
+    SSH_PORT="$(random_free_port)"
+  done
+  WEB_PORT="$(random_free_port)"
+  while [[ "$WEB_PORT" == "$PROXY_PORT" || "$WEB_PORT" == "$SSH_PORT" ]]; do
+    WEB_PORT="$(random_free_port)"
+  done
   CONTROL_SUBNET="$(pick_control_subnet)"
   CONTAINER_NAME="boris-validate-main-${COMPOSE_PROJECT_NAME}"
   GATEWAY_NAME="boris-validate-gateway-${COMPOSE_PROJECT_NAME}"
@@ -326,6 +340,8 @@ CAC_CHILD_CONTAINER_PROXY_URL=socks5h://host.docker.internal:${PROXY_PORT}
 CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 CAC_DOCKER_IMAGE=${IMAGE_NAME}
 CAC_DOCKER_BUILD_LOCAL=1
+CAC_HOST_SSH_PORT=${SSH_PORT}
+CAC_HOST_WEB_PORT=${WEB_PORT}
 EOF
 }
 
@@ -350,6 +366,26 @@ docker_start_step() {
 docker_status_step() {
   docker_cmd status | tee "$LOG_ROOT/docker-status.out"
   grep -q 'Status:.*running' "$LOG_ROOT/docker-status.out"
+}
+
+docker_web_ui_step() {
+  local i
+  wait_for_tcp 127.0.0.1 "$WEB_PORT" || return 1
+  for i in $(seq 1 30); do
+    if curl --max-time 5 -fsSI "http://127.0.0.1:${WEB_PORT}" >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+  curl --max-time 5 -fsSI "http://127.0.0.1:${WEB_PORT}" >/dev/null || return 1
+
+  for i in $(seq 1 30); do
+    if docker exec "$CONTAINER_NAME" sh -lc 'curl --max-time 5 -fsSI http://127.0.0.1:3001 >/dev/null' >/dev/null 2>&1; then
+      break
+    fi
+    sleep 0.5
+  done
+  docker exec "$CONTAINER_NAME" sh -lc 'curl --max-time 5 -fsSI http://127.0.0.1:3001 >/dev/null' || return 1
 }
 
 docker_cac_check_step() {
@@ -430,6 +466,7 @@ main() {
     run_step "docker-create" docker_create_step || capture_docker_debug "docker-create"
     run_step "docker-start" docker_start_step || capture_docker_debug "docker-start"
     run_step "docker-status" docker_status_step || capture_docker_debug "docker-status"
+    run_step "docker-web-ui" docker_web_ui_step || capture_docker_debug "docker-web-ui"
     run_step "docker-check-command" docker_cac_check_step || capture_docker_debug "docker-check-command"
     run_step "container-cac-check" docker_container_check_step || capture_docker_debug "container-cac-check"
     run_step "child-docker-wrapper" docker_child_wrapper_step || capture_docker_debug "child-docker-wrapper"

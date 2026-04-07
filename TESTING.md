@@ -15,6 +15,7 @@ The script is designed for developer workstations and validates the current repo
 - Starts a local SOCKS5 stub with `docker/dev-socks5.py`
 - Uses a unique `COMPOSE_PROJECT_NAME`, container names, and control subnet
 - Exercises `cac docker create/start/status/check/stop`
+- Verifies the Web UI is reachable on the published host port and inside the container
 - Verifies child-container Docker access through the sidecar wrapper
 - Verifies host port forwarding via `cac docker port`
 - Verifies fail-closed behavior by stopping the local proxy stub and checking that egress fails
@@ -61,6 +62,7 @@ bash scripts/validate.sh --proxy-port 17910 --subnet 172.28.245.0/24
 - `cac env create` with a preseeded fake Claude version
 - Docker image build / compose bring-up
 - Local bridge-mode stack startup with a SOCKS5 stub
+- Web UI reachability on the published host port and on container-local `127.0.0.1:3001`
 - `cac-check` inside the main container
 - Child `docker run` path rewrite and proxy env injection
 - Host-to-container port forwarding

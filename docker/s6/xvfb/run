@@ -1,0 +1,8 @@
+#!/command/with-contenv bash
+set -euo pipefail
+
+if [[ "${CAC_ENABLE_WEB:-1}" != "1" ]]; then
+  exec sleep infinity
+fi
+
+exec Xvfb "${DISPLAY:-:99}" -screen 0 1920x1080x24 -nolisten tcp

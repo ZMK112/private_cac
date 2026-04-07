@@ -20,7 +20,7 @@ cac docker enter     # shell in — claude + cac ready
 
 After `cac docker start`, the current host directory is mounted to `/workspace` inside the main container.
 The default runtime user remains non-root, but now has passwordless `sudo` for ad hoc package installs and one-off maintenance inside the container.
-The base image also preinstalls a small data/dev CLI set: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, and `unzip`.
+The base image also preinstalls a small but practical data/dev CLI set: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, `unzip`, plus terminal staples like `vim`, `tmux`, `less`, and `bat`.
 Docker mode also publishes an SSH endpoint on `127.0.0.1:2222` by default so the host can connect straight into the main container without extra key setup.
 
 ## Setup
@@ -89,13 +89,13 @@ The main shell inside the container runs as the canonical non-root persona user 
 
 ## SSH access
 
-Docker mode starts `sshd` inside the main container and publishes it to `127.0.0.1:${CAC_HOST_SSH_PORT:-2222}` on the host. Password login is enabled for the runtime user, and the default password is `cherny` unless you override `CAC_SSH_PASSWORD` in `docker/.env`, so the common path is:
+Docker mode starts `sshd` inside the main container and publishes it to `0.0.0.0:${CAC_HOST_SSH_PORT:-2222}` on the host by default. Password login is enabled for the runtime user, and the default password is `cherny` unless you override `CAC_SSH_PASSWORD` in `docker/.env`, so the common path is:
 
 ```bash
-ssh -p 2222 cherny@127.0.0.1
+ssh -p 2222 cherny@<host-ip>
 ```
 
-The published port stays localhost-only by default; it is not exposed to the rest of the LAN unless you intentionally change the port binding.
+If you want to keep SSH localhost-only, set `CAC_HOST_SSH_BIND=127.0.0.1` in `docker/.env` and restart the stack.
 
 Public-key auth is also left enabled for later use, but `cac` does not import any host SSH keys or mount the host `~/.ssh`. If you want key-based login later, add your own key manually inside the persisted container home, for example `/home/cherny/.ssh/authorized_keys`.
 

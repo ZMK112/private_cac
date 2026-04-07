@@ -5,6 +5,22 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.4.4-zmk.12-web.1
+<sub>2026-04-07</sub>
+
+**独立的 Web 增强版发布线**
+
+- 新增一个与传统 Docker 镜像/tag 分开的 Web 增强版发布线，便于后续独立演进。
+- 在主保护容器内集成可通过浏览器访问的 CloudCLI UI，而不是额外放一个放宽隔离的 Web sidecar。
+- 为 Docker 模式加入 `s6-overlay` 监督，并让 `Xvfb` + CloudCLI 保持在运行用户模型下工作。
+- 在 Docker 镜像中加入 `Chromium`、`Playwright`，以及 `vim`、`tmux`、`less`、`bat` 等常用终端/开发工具。
+- 增加 CloudCLI 上游源码跟踪和本地 patch 日志，便于后续跟进 upstream 版本。
+- 增加 `cac` 路径兼容层，让 CloudCLI 使用 Docker 模式当前活动环境的 Claude 配置/会话目录，而不是默认假定裸 `~/.claude`。
+- 修复 Docker 模式 active profile 代理漂移：容器启动时会从当前 `PROXY_URI` 重新刷新活动环境的 `proxy` 文件。
+- 让 Docker 模式的 Web UI 与 SSH 默认都可从宿主机和局域网访问，同时保留可配置的绑定地址。
+- 修复 CloudCLI shell 中 Disconnect 无效的问题：用户主动断开后不再立即自动重连。
+- 扩展自动化 Docker 验证，把 Web UI 就绪检查纳入门禁，同时保留原始隐私/网络/fail-closed 检查。
+
 ## Unreleased
 <sub>2026-04-01</sub>
 

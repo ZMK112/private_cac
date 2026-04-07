@@ -5,6 +5,22 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.4.4-zmk.12-web.1
+<sub>2026-04-07</sub>
+
+**Separate Web-enabled variant release**
+
+- Added a separate Web-enabled Docker-mode release track so it can evolve independently from the traditional Docker image/tag line.
+- Added a browser-accessible CloudCLI UI inside the main protected `cac docker` container instead of using a separate relaxed Web sidecar.
+- Added `s6-overlay` supervision for Docker-mode Web services and kept `Xvfb` + CloudCLI under the runtime-user model.
+- Added `Chromium`, `Playwright`, and common terminal/dev tools such as `vim`, `tmux`, `less`, and `bat` to the Docker image.
+- Added CloudCLI vendored-source tracking plus a local patch log for future upstream rebases.
+- Added a `cac` path-compatibility layer so CloudCLI uses the active Docker-mode Claude config/session roots instead of assuming a bare `~/.claude`.
+- Fixed Docker-mode active profile proxy drift by refreshing the active env `proxy` file from the current `PROXY_URI` on container start.
+- Made the Docker-mode Web UI reachable from the host and LAN by default, with configurable bind addresses for both Web and SSH.
+- Fixed the CloudCLI shell Disconnect behavior so a user-initiated disconnect no longer immediately auto-reconnects.
+- Extended automated Docker validation to include Web UI readiness while preserving the original privacy/network/fail-closed gates.
+
 ## Unreleased
 <sub>2026-04-01</sub>
 

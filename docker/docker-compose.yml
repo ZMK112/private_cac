@@ -18,6 +18,7 @@ services:
     hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-boris-main}
     depends_on:
       - docker-proxy
+    shm_size: ${CAC_SHM_SIZE:-2g}
     privileged: true
     cap_add:
       - NET_ADMIN
@@ -42,6 +43,8 @@ services:
       CAC_ENABLE_SSH: ${CAC_ENABLE_SSH:-1}
       CAC_SSH_PASSWORD: ${CAC_SSH_PASSWORD:-cherny}
       CAC_SSH_CONTAINER_PORT: ${CAC_SSH_CONTAINER_PORT:-22}
+      CAC_ENABLE_WEB: ${CAC_ENABLE_WEB:-1}
+      CAC_WEB_PORT: ${CAC_WEB_PORT:-3001}
       CAC_FAKE_USER: ${CAC_FAKE_USER:-cherny}
       CAC_FAKE_UID: ${CAC_FAKE_UID:-1001}
       CAC_FAKE_GID: ${CAC_FAKE_GID:-1001}
@@ -66,7 +69,8 @@ services:
       - ${CAC_DATA:-./data}/home:/home
       - ${CAC_WORKSPACE_HOST:?Set CAC_WORKSPACE_HOST in .env}:/workspace
     ports:
-      - "127.0.0.1:${CAC_HOST_SSH_PORT:-2222}:${CAC_SSH_CONTAINER_PORT:-22}"
+      - "${CAC_HOST_SSH_BIND:-0.0.0.0}:${CAC_HOST_SSH_PORT:-2222}:${CAC_SSH_CONTAINER_PORT:-22}"
+      - "${CAC_HOST_WEB_BIND:-0.0.0.0}:${CAC_HOST_WEB_PORT:-3001}:${CAC_WEB_PORT:-3001}"
     networks:
       docker_control:
         ipv4_address: ${CAC_DOCKER_CLIENT_IP:-172.31.255.3}
