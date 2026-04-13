@@ -286,6 +286,36 @@ Only then decide whether the problem is:
 - host publishing
 - or just readiness timing
 
+### Mistake: fixing Disconnect once but not guarding the behavior
+
+Symptom:
+
+- the Web UI `Disconnect` button appeared to work briefly
+- then the shell auto-connected again without the user clicking `Connect`
+
+Root cause:
+
+- upstream `autoConnect` logic only checked transport state
+- it did not distinguish:
+  - user-initiated disconnect
+  - internal disconnect caused by restart, session switch, or project switch
+
+What worked:
+
+- keep separate behavior for:
+  - manual disconnect: suppress auto-reconnect
+  - internal disconnect: keep auto-reconnect available
+- wire the header `Disconnect` button to a dedicated manual-disconnect path
+- keep `Connect` as the only action that clears manual-disconnect suppression
+
+Regression check to keep in memory:
+
+1. open the Web shell and wait until it is connected
+2. click `Disconnect`
+3. verify the overlay stays in `Connect` mode for at least a few seconds without reconnecting
+4. click `Connect` and verify the shell reconnects
+5. switch session/project or click `Restart` and verify reconnect still happens automatically
+
 ### Mistake: validating against a stale Docker image
 
 Symptom:

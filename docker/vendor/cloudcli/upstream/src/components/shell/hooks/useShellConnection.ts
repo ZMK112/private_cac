@@ -33,6 +33,7 @@ type UseShellConnectionResult = {
   closeSocket: () => void;
   connectToShell: () => void;
   disconnectFromShell: () => void;
+  manualDisconnectFromShell: () => void;
 };
 
 export function useShellConnection({
@@ -54,6 +55,7 @@ export function useShellConnection({
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const connectingRef = useRef(false);
+  const manualDisconnectRef = useRef(false);
 
   const handleProcessCompletion = useCallback(
     (output: string) => {
@@ -200,6 +202,7 @@ export function useShellConnection({
       return;
     }
 
+    manualDisconnectRef.current = false;
     connectingRef.current = true;
     setIsConnecting(true);
     connectWebSocket(true);
@@ -211,11 +214,22 @@ export function useShellConnection({
     setIsConnected(false);
     setIsConnecting(false);
     connectingRef.current = false;
+    manualDisconnectRef.current = false;
+    setAuthUrl('');
+  }, [clearTerminalScreen, closeSocket, setAuthUrl]);
+
+  const manualDisconnectFromShell = useCallback(() => {
+    closeSocket();
+    clearTerminalScreen();
+    setIsConnected(false);
+    setIsConnecting(false);
+    connectingRef.current = false;
+    manualDisconnectRef.current = true;
     setAuthUrl('');
   }, [clearTerminalScreen, closeSocket, setAuthUrl]);
 
   useEffect(() => {
-    if (!autoConnect || !isInitialized || isConnecting || isConnected) {
+    if (!autoConnect || manualDisconnectRef.current || !isInitialized || isConnecting || isConnected) {
       return;
     }
 
@@ -228,5 +242,6 @@ export function useShellConnection({
     closeSocket,
     connectToShell,
     disconnectFromShell,
+    manualDisconnectFromShell,
   };
 }

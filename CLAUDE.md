@@ -95,4 +95,5 @@
   - Web UI reachability
   - no-login Web access
   - occupied-port auto-fallback for SSH and Web
+  - shell Disconnect behavior: clicking `Disconnect` in Web UI must keep the shell disconnected until the user explicitly clicks `Connect`; switching session/project or clicking `Restart` must still allow auto-reconnect
 - Current local validation result for this branch: `16 pass / 0 fail / 0 warn`

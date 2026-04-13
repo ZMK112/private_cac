@@ -59,6 +59,7 @@ export default function Shell({
     authUrlVersion,
     connectToShell,
     disconnectFromShell,
+    manualDisconnectFromShell,
     openAuthUrlInBrowser,
     copyAuthUrlToClipboard,
   } = useShellRuntime({
@@ -254,7 +255,7 @@ export default function Shell({
         isRestarting={isRestarting}
         hasSession={Boolean(selectedSession)}
         sessionDisplayNameShort={sessionDisplayNameShort}
-        onDisconnect={disconnectFromShell}
+        onDisconnect={manualDisconnectFromShell}
         onRestart={handleRestartShell}
         statusNewSessionText={t('shell.status.newSession')}
         statusInitializingText={t('shell.status.initializing')}

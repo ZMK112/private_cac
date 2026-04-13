@@ -71,6 +71,7 @@ export type UseShellRuntimeResult = {
   authUrlVersion: number;
   connectToShell: () => void;
   disconnectFromShell: () => void;
+  manualDisconnectFromShell: () => void;
   openAuthUrlInBrowser: (url?: string) => boolean;
   copyAuthUrlToClipboard: (url?: string) => Promise<boolean>;
 };
