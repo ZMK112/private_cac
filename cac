@@ -3055,6 +3055,25 @@ _dk_web_port() {
   printf '%s\n' "${web_port:-3001}"
 }
 
+_dk_mask_proxy_display() {
+  local proxy="${1:-}"
+  [[ -n "$proxy" ]] || return 0
+
+  if [[ "$proxy" == *"://"*"@"* ]]; then
+    printf '%s\n' "$proxy" | sed 's|://[^@]*@|://***@|'
+    return 0
+  fi
+
+  if [[ "$proxy" == *:*:*:* ]]; then
+    local host="" port=""
+    IFS=: read -r host port _ _ <<< "$proxy"
+    printf '%s:%s:***\n' "$host" "$port"
+    return 0
+  fi
+
+  printf '%s\n' "$proxy"
+}
+
 _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
 }
@@ -3865,7 +3884,7 @@ _dk_cmd_setup() {
     _info "Build mode: \033[1mpinned image pull\033[0m"
   fi
   _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
-  [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m${child_proxy}\033[0m"
+  [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m$(_dk_mask_proxy_display "$child_proxy")\033[0m"
   if [[ "$ssh_enabled" != "0" ]]; then
     _info "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
   fi
@@ -4138,7 +4157,7 @@ _dk_cmd_status() {
   [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
   [[ -n "$docker_host" ]] && printf "  Container Docker API: %s\n" "$docker_host"
   [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
-  [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $child_proxy"
+  [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $(_dk_mask_proxy_display "$child_proxy")"
   [[ "$ssh_enabled" != "0" ]] && printf "  SSH:        ssh -p %s %s@127.0.0.1\n" "$ssh_port" "${CAC_FAKE_USER:-cherny}"
   [[ "$web_enabled" != "0" ]] && printf "  Web UI:     http://127.0.0.1:%s\n" "$web_port"
 
