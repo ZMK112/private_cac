@@ -82,6 +82,11 @@ function getInstallDir() {
     return path.join(__dirname, '..');
 }
 
+function updateCheckDisabled() {
+    const value = (process.env.CLOUDCLI_DISABLE_UPDATE_CHECK || '').trim().toLowerCase();
+    return value === '1' || value === 'true' || value === 'yes';
+}
+
 // Show status command
 function showStatus() {
     console.log(`\n${c.bright('Claude Code UI - Status')}\n`);
@@ -246,8 +251,10 @@ async function updatePackage() {
 
 // Start the server
 async function startServer() {
-    // Check for updates silently on startup
-    checkForUpdates(true);
+    // Docker mode can disable this to avoid irrelevant network calls on startup.
+    if (!updateCheckDisabled()) {
+        checkForUpdates(true);
+    }
 
     // Import and run the server
     await import('./index.js');

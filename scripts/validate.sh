@@ -8,12 +8,15 @@ DOCKER_WORKTREE=""
 COMPOSE_PROJECT_NAME="cacvalidate$$"
 CONTAINER_NAME=""
 GATEWAY_NAME=""
-IMAGE_NAME="cac-docker-validate:vlocal"
+IMAGE_NAME=""
 PROXY_PID=""
 PROXY_PORT=""
 SSH_PORT=""
 WEB_PORT=""
+REQUESTED_SSH_PORT=""
+REQUESTED_WEB_PORT=""
 CONTROL_SUBNET=""
+PORT_BLOCKER_PIDS=()
 RUN_DOCKER=true
 KEEP_WORKDIR=false
 STEP_INDEX=0
@@ -145,6 +148,14 @@ capture_docker_debug() {
 }
 
 cleanup() {
+  local blocker_pid
+  for blocker_pid in "${PORT_BLOCKER_PIDS[@]:-}"; do
+    if [[ -n "$blocker_pid" ]] && kill -0 "$blocker_pid" 2>/dev/null; then
+      kill "$blocker_pid" 2>/dev/null || true
+      wait "$blocker_pid" 2>/dev/null || true
+    fi
+  done
+
   if [[ -n "$PROXY_PID" ]] && kill -0 "$PROXY_PID" 2>/dev/null; then
     kill "$PROXY_PID" 2>/dev/null || true
     wait "$PROXY_PID" 2>/dev/null || true
@@ -161,6 +172,7 @@ cleanup() {
   fi
 
   if [[ "$KEEP_WORKDIR" != "true" ]]; then
+    [[ -n "$IMAGE_NAME" ]] && docker image rm -f "$IMAGE_NAME" >/dev/null 2>&1 || true
     [[ -n "$CLI_HOME" ]] && rm -rf "$CLI_HOME"
     [[ -n "$DOCKER_WORKTREE" ]] && rm -rf "$DOCKER_WORKTREE"
     [[ -n "$LOG_ROOT" ]] && rm -rf "$LOG_ROOT"
@@ -268,6 +280,23 @@ run_build_checks() {
   bash build.sh
   node --check src/relay.js
   node --check src/fingerprint-hook.js
+  bash -lc '
+    source src/cmd_docker.sh
+    test "$(_dk_guess_child_proxy_url local "127.0.0.1:1080:user:pass")" = "socks5h://user:pass@host.docker.internal:1080"
+    test "$(_dk_guess_child_proxy_url remote "socks5://user:pass@10.0.0.8:1080")" = "socks5://user:pass@10.0.0.8:1080"
+    test "$(_dk_guess_child_proxy_url remote "http://user:pass@10.0.0.8:8080")" = "http://user:pass@10.0.0.8:8080"
+  '
+  bash -lc '
+    source <(awk "
+      /^proxy_env_url_for_disabled_singbox\\(\\)/ {flag=1}
+      flag {print}
+      flag && /^}/ {exit}
+    " docker/entrypoint.sh)
+    test "$(proxy_env_url_for_disabled_singbox "1.2.3.4:1080:user:pass")" = "socks5h://user:pass@1.2.3.4:1080"
+    test "$(proxy_env_url_for_disabled_singbox "socks5://user:pass@1.2.3.4:1080")" = "socks5://user:pass@1.2.3.4:1080"
+    test "$(proxy_env_url_for_disabled_singbox "http://user:pass@1.2.3.4:8080")" = "http://user:pass@1.2.3.4:8080"
+    ! proxy_env_url_for_disabled_singbox "ss://example"
+  '
   if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -s bash -S warning \
       src/utils.sh \
@@ -321,7 +350,10 @@ prepare_docker_worktree() {
   while [[ "$WEB_PORT" == "$PROXY_PORT" || "$WEB_PORT" == "$SSH_PORT" ]]; do
     WEB_PORT="$(random_free_port)"
   done
+  REQUESTED_SSH_PORT="$SSH_PORT"
+  REQUESTED_WEB_PORT="$WEB_PORT"
   CONTROL_SUBNET="$(pick_control_subnet)"
+  IMAGE_NAME="cac-docker-validate:${COMPOSE_PROJECT_NAME}"
   CONTAINER_NAME="boris-validate-main-${COMPOSE_PROJECT_NAME}"
   GATEWAY_NAME="boris-validate-gateway-${COMPOSE_PROJECT_NAME}"
 
@@ -352,15 +384,56 @@ start_proxy_stub() {
   wait_for_tcp 127.0.0.1 "$PROXY_PORT"
 }
 
+start_port_blocker() {
+  local label="$1" port="$2" pid
+  python3 -m http.server "$port" --bind 0.0.0.0 >"$LOG_ROOT/${label}-blocker.log" 2>&1 &
+  pid=$!
+  PORT_BLOCKER_PIDS+=("$pid")
+  wait_for_tcp 127.0.0.1 "$port"
+}
+
+start_requested_port_blockers() {
+  start_port_blocker ssh "$REQUESTED_SSH_PORT" || return 1
+  start_port_blocker web "$REQUESTED_WEB_PORT" || return 1
+}
+
+load_actual_host_ports() {
+  SSH_PORT="$(awk -F= '/^CAC_HOST_SSH_PORT=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
+  WEB_PORT="$(awk -F= '/^CAC_HOST_WEB_PORT=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
+  [[ -n "$SSH_PORT" && -n "$WEB_PORT" ]]
+}
+
 docker_create_step() {
   docker_cmd create
 }
 
 docker_start_step() {
   docker_cmd start
+  load_actual_host_ports || return 1
   local running
   running="$(docker inspect --format '{{.State.Running}}' "$CONTAINER_NAME" 2>/dev/null || true)"
   [[ "$running" == "true" ]]
+}
+
+docker_auto_port_step() {
+  [[ "$SSH_PORT" != "$REQUESTED_SSH_PORT" ]] || {
+    echo "ssh port did not move from occupied ${REQUESTED_SSH_PORT}" >&2
+    return 1
+  }
+  [[ "$WEB_PORT" != "$REQUESTED_WEB_PORT" ]] || {
+    echo "web port did not move from occupied ${REQUESTED_WEB_PORT}" >&2
+    return 1
+  }
+  [[ "$SSH_PORT" -gt "$REQUESTED_SSH_PORT" ]] || {
+    echo "ssh port ${SSH_PORT} did not advance past ${REQUESTED_SSH_PORT}" >&2
+    return 1
+  }
+  [[ "$WEB_PORT" -gt "$REQUESTED_WEB_PORT" ]] || {
+    echo "web port ${WEB_PORT} did not advance past ${REQUESTED_WEB_PORT}" >&2
+    return 1
+  }
+  wait_for_tcp 127.0.0.1 "$SSH_PORT" || return 1
+  wait_for_tcp 127.0.0.1 "$WEB_PORT" || return 1
 }
 
 docker_status_step() {
@@ -386,6 +459,36 @@ docker_web_ui_step() {
     sleep 0.5
   done
   docker exec "$CONTAINER_NAME" sh -lc 'curl --max-time 5 -fsSI http://127.0.0.1:3001 >/dev/null' || return 1
+}
+
+docker_web_nologin_step() {
+  local auth_user_json projects_json
+  auth_user_json="$(curl --max-time 10 -fsS "http://127.0.0.1:${WEB_PORT}/api/auth/user")" || return 1
+  AUTH_USER_JSON="$auth_user_json" python3 - <<'PY'
+import json, os
+payload = json.loads(os.environ["AUTH_USER_JSON"])
+user = payload.get("user") or {}
+if not user.get("username"):
+    raise SystemExit("missing username in unauthenticated /api/auth/user response")
+PY
+
+  projects_json="$(curl --max-time 10 -fsS "http://127.0.0.1:${WEB_PORT}/api/projects")" || return 1
+  PROJECTS_JSON="$projects_json" python3 - <<'PY'
+import json, os
+payload = json.loads(os.environ["PROJECTS_JSON"])
+if not isinstance(payload, list):
+    raise SystemExit("/api/projects did not return a JSON list")
+PY
+
+  docker exec "$CONTAINER_NAME" sh -lc \
+    'chromium --headless --no-sandbox --disable-gpu --lang=en-US --virtual-time-budget=8000 --dump-dom http://127.0.0.1:3001' \
+    >"$LOG_ROOT/cloudcli-dom.html" || return 1
+
+  rg -q 'No projects found|Loading projects|Fetching your Claude projects and sessions' "$LOG_ROOT/cloudcli-dom.html" || return 1
+  if rg -qi 'type="password"|login|create your account|sign in' "$LOG_ROOT/cloudcli-dom.html"; then
+    echo "login UI still visible in platform mode" >&2
+    return 1
+  fi
 }
 
 docker_cac_check_step() {
@@ -464,9 +567,12 @@ main() {
     prepare_docker_worktree
     run_step "proxy-stub" start_proxy_stub || true
     run_step "docker-create" docker_create_step || capture_docker_debug "docker-create"
+    run_step "docker-port-autofallback" start_requested_port_blockers || true
     run_step "docker-start" docker_start_step || capture_docker_debug "docker-start"
+    run_step "docker-port-autofallback-check" docker_auto_port_step || capture_docker_debug "docker-port-autofallback-check"
     run_step "docker-status" docker_status_step || capture_docker_debug "docker-status"
     run_step "docker-web-ui" docker_web_ui_step || capture_docker_debug "docker-web-ui"
+    run_step "docker-web-ui-no-login" docker_web_nologin_step || capture_docker_debug "docker-web-ui-no-login"
     run_step "docker-check-command" docker_cac_check_step || capture_docker_debug "docker-check-command"
     run_step "container-cac-check" docker_container_check_step || capture_docker_debug "container-cac-check"
     run_step "child-docker-wrapper" docker_child_wrapper_step || capture_docker_debug "child-docker-wrapper"

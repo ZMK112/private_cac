@@ -14,8 +14,10 @@ export HOME="${HOME:-/home/cherny}"
 export WORKSPACES_ROOT="${WORKSPACES_ROOT:-/workspace}"
 export DISPLAY="${DISPLAY:-:99}"
 export DATABASE_PATH="${DATABASE_PATH:-${HOME}/.cloudcli/auth.db}"
+export VITE_IS_PLATFORM="${VITE_IS_PLATFORM:-true}"
 export CLOUDCLI_DISABLE_UPDATE_CHECK="${CLOUDCLI_DISABLE_UPDATE_CHECK:-1}"
 export NODE_OPTIONS="${NODE_OPTIONS:+$NODE_OPTIONS }--no-deprecation"
 
 cd /workspace
+/usr/local/bin/cloudcli-bootstrap-user.sh
 exec cloudcli --port "${CAC_WEB_PORT:-3001}"

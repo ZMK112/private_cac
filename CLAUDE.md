@@ -6,6 +6,8 @@
 - Scope: support the current active env only. Web-side profile switching is not required.
 - Additional runtime requirement: the existing `cac docker` container should also provide `Xvfb`, `Chromium`, and `Playwright`.
 - Service supervision decision: use `s6` from the beginning rather than adding it later.
+- Current Web UX target: Docker Web UI should open without a manual CloudCLI login step.
+- Current host-port target: if default SSH/Web host ports are occupied, Docker mode should automatically advance to the next free ports and persist them.
 
 ## Priority Rule
 
@@ -31,6 +33,8 @@
 - After `cac docker` finishes TUN + persona + runtime env initialization, expose the current active env's `.claude` as `HOME/.claude` for Web compatibility.
 - Also handle `.claude.json` consistently, because CloudCLI touches it directly.
 - Set `WORKSPACES_ROOT=/workspace`, `DISPLAY=:99`, and keep CloudCLI state under persistent home storage rather than `/workspace`.
+- Use Docker Web UI no-login platform mode rather than requiring manual CloudCLI auth in the browser.
+- Keep host port assignment user-friendly by printing the resolved Web URL and auto-advancing occupied SSH/Web ports.
 
 ## Why This Direction
 
@@ -59,6 +63,7 @@
 - This should make future HolyClaude Web-related updates easier to port with minimal churn.
 - Detailed analysis and patch map notes live in `docs/superpowers/plans/2026-04-07-cloudcli-cac-web-analysis.md`.
 - Proposed implementation and upstream-tracking workflow live in `docs/superpowers/plans/2026-04-07-cloudcli-cac-web-implementation-plan.md`.
+- Debugging tips, migration pitfalls, and validation mistakes live in `docs/superpowers/plans/2026-04-07-cloudcli-cac-web-dev-notes.md`.
 
 ## s6 Note
 
@@ -80,3 +85,14 @@
    - tighten persistence and startup behavior
 3. Productization:
    - keep HolyClaude Web-side compatibility easy to track
+
+## Current Validation Gate
+
+- Validation must cover:
+  - original Docker privacy/network checks
+  - fail-closed behavior
+  - child Docker wrapper behavior
+  - Web UI reachability
+  - no-login Web access
+  - occupied-port auto-fallback for SSH and Web
+- Current local validation result for this branch: `16 pass / 0 fail / 0 warn`

@@ -21,7 +21,8 @@ cac docker enter     # shell in — claude + cac ready
 After `cac docker start`, the current host directory is mounted to `/workspace` inside the main container.
 The default runtime user remains non-root, but now has passwordless `sudo` for ad hoc package installs and one-off maintenance inside the container.
 The base image also preinstalls a small but practical data/dev CLI set: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, `unzip`, plus terminal staples like `vim`, `tmux`, `less`, and `bat`.
-Docker mode also publishes an SSH endpoint on `127.0.0.1:2222` by default so the host can connect straight into the main container without extra key setup.
+Docker mode also publishes SSH and the CloudCLI Web UI on the host by default, and if either requested port is already occupied it automatically advances to the next free one and writes that port back to `docker/.env`.
+The Web UI runs in Docker-specific no-login mode, so opening it should go straight into Claude's web shell instead of stopping on a CloudCLI auth screen.
 
 ## Setup
 

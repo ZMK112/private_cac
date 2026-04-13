@@ -36,8 +36,10 @@ Docker mode now includes a browser-accessible CloudCLI Web UI in the main contai
 - Bind address is configurable with `CAC_HOST_WEB_BIND`:
   - `0.0.0.0` allows LAN access
   - `127.0.0.1` keeps it localhost-only
+- If `CAC_HOST_WEB_PORT` is already occupied, `cac docker start` / `cac docker rebuild` automatically advance to the next free host port and write it back to `docker/.env`
 - Backed by the same protected main container runtime used for `cac docker enter`
 - Intended to use the current active `cac` env inside Docker mode
+- Runs in no-login platform mode by default for Docker mode, so opening the page should go straight into the app instead of stopping on the CloudCLI login form
 
 Open on the host:
 
@@ -92,6 +94,7 @@ Mode is auto-detected based on your Docker installation.
 - `cac docker enter` opens a shell in the main container. `claude`, `cac`, and `docker` are already on `PATH`.
 - `cac docker check` validates the main container's TUN path, rejects China exit-IP geolocation, and verifies the published SSH endpoint when SSH is enabled.
 - Docker mode now publishes SSH on `0.0.0.0:${CAC_HOST_SSH_PORT:-2222}` by default, so LAN clients can connect with `ssh -p 2222 cherny@<host-ip>` using the default password `cherny` unless you override `CAC_SSH_PASSWORD`.
+- If the configured SSH port is already occupied, Docker mode automatically advances to the next free port and persists that port in `docker/.env`.
 - To keep SSH localhost-only, set `CAC_HOST_SSH_BIND=127.0.0.1` and restart the stack.
 - Docker mode now publishes the Web UI on `0.0.0.0:${CAC_HOST_WEB_PORT:-3001}` by default.
 - To keep the Web UI localhost-only, set `CAC_HOST_WEB_BIND=127.0.0.1` and restart the stack.

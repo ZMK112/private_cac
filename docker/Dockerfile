@@ -146,7 +146,7 @@ COPY docker/vendor/cloudcli/upstream /opt/cloudcli-src
 RUN set -eux; \
     cd /opt/cloudcli-src; \
     npm ci; \
-    npm run build; \
+    VITE_IS_PLATFORM=true npm run build; \
     CLOUDCLI_VERSION="$(node -p "require('./package.json').version")"; \
     CLOUDCLI_TARBALL="siteboon-claude-code-ui-${CLOUDCLI_VERSION}.tgz"; \
     HUSKY=0 npm pack --pack-destination /tmp >/dev/null 2>&1; \
@@ -162,13 +162,14 @@ ENV PYTHONPATH="/opt/ccimage"
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/cac-check /usr/local/bin/cac-check
 COPY docker/docker-wrapper.sh /usr/local/bin/docker
+COPY docker/web/cloudcli-bootstrap-user.sh /usr/local/bin/cloudcli-bootstrap-user.sh
 COPY docker/web/cloudcli-env.sh /usr/local/bin/cloudcli-env.sh
 COPY docker/templates /usr/local/share/cherny
 COPY docker/s6/cloudcli/type /etc/s6-overlay/s6-rc.d/cloudcli/type
 COPY docker/s6/cloudcli/run /etc/s6-overlay/s6-rc.d/cloudcli/run
 COPY docker/s6/xvfb/type /etc/s6-overlay/s6-rc.d/xvfb/type
 COPY docker/s6/xvfb/run /etc/s6-overlay/s6-rc.d/xvfb/run
-RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker /usr/local/bin/cloudcli-env.sh \
+RUN chmod +x /usr/local/bin/entrypoint.sh /usr/local/bin/cac-check /usr/local/bin/docker /usr/local/bin/cloudcli-env.sh /usr/local/bin/cloudcli-bootstrap-user.sh \
     && chmod +x /etc/s6-overlay/s6-rc.d/cloudcli/run /etc/s6-overlay/s6-rc.d/xvfb/run \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/cloudcli \
     && touch /etc/s6-overlay/s6-rc.d/user/contents.d/xvfb

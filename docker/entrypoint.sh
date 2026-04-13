@@ -70,6 +70,28 @@ normalize_proxy_for_cac() {
   printf '%s\n' "$raw"
 }
 
+proxy_env_url_for_disabled_singbox() {
+  local raw="${1:-}"
+  [[ -n "$raw" ]] || return 1
+
+  if [[ "$raw" == *"://"* ]]; then
+    case "$raw" in
+      socks5://*|socks5h://*|http://*|https://*)
+        printf '%s\n' "$raw"
+        return 0
+        ;;
+      *)
+        return 1
+        ;;
+    esac
+  fi
+
+  local h="" p="" u="" pw=""
+  IFS=: read -r h p u pw <<< "$raw"
+  [[ -n "$h" && -n "$p" ]] || return 1
+  printf 'socks5h://%s%s:%s\n' "${u:+$u:$pw@}" "$h" "$p"
+}
+
 ensure_profile_home() {
   mkdir -p "$PROFILE_HOME" "$PROFILE_HOME/.local/bin"
   touch "$PROFILE_BASHRC" "$PROFILE_PROFILE"
@@ -688,12 +710,10 @@ elif [[ "$SINGBOX_ENABLE" == "0" ]]; then
     echo "SINGBOX_ENABLE=0 but PROXY_URI not set" >&2
     exit 1
   fi
-  if [[ "$PROXY_URI" == *"://"* ]]; then
-    echo "SINGBOX_ENABLE=0 does not support share links. Use SINGBOX_ENABLE=1 or compact format." >&2
+  if ! PROXY_URL="$(proxy_env_url_for_disabled_singbox "$PROXY_URI")"; then
+    echo "SINGBOX_ENABLE=0 supports compact SOCKS5 or explicit http(s)/socks5(h) proxy URLs only. Use SINGBOX_ENABLE=1 for share links." >&2
     exit 1
   fi
-  IFS=: read -r h p u pw <<< "$PROXY_URI"
-  PROXY_URL="socks5h://${u:+$u:$pw@}$h:$p"
   export ALL_PROXY="$PROXY_URL" HTTP_PROXY="$PROXY_URL" HTTPS_PROXY="$PROXY_URL"
   export all_proxy="$PROXY_URL" http_proxy="$PROXY_URL" https_proxy="$PROXY_URL"
   export NO_PROXY="localhost,127.0.0.1,::1" no_proxy="localhost,127.0.0.1,::1"

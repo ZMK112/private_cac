@@ -286,6 +286,61 @@ Only then decide whether the problem is:
 - host publishing
 - or just readiness timing
 
+### Mistake: validating against a stale Docker image
+
+Symptom:
+
+- validation said Web behavior was still old even after local source changes
+- container internals did not match the current branch
+
+Root cause:
+
+- validation reused a fixed local image tag
+- `cac docker create` only rebuilt the main runtime image when it was missing
+- later runs refreshed `docker-proxy` but kept the stale main image
+
+Fix:
+
+- give each validation run a unique main image tag
+- do not assume "local build" means "fresh build"
+- if behavior looks impossible, inspect the image contents inside the test container
+
+### Mistake: independent host-port fallback can still collide
+
+Symptom:
+
+- SSH and Web both detected an occupied port
+- both then selected the same "next free" port
+- Docker start failed with `port is already allocated`
+
+Root cause:
+
+- fallback logic checked SSH and Web independently
+- the second allocation did not treat the first selected replacement port as reserved
+
+Fix:
+
+- reserve already-selected ports while searching for the next free host port
+- validate this explicitly by occupying both requested ports during automated tests
+
+### Mistake: trusting one unauthenticated API endpoint too early
+
+Symptom:
+
+- `docker-web-ui-no-login` failed with `401`
+
+Root cause:
+
+- the validation was still running an older image that did not include platform-mode startup
+- the failing signal was real, but the image under test was not the current branch
+
+Fix:
+
+- first confirm the running image really contains the expected `s6` script and CloudCLI changes
+- then validate no-login with both:
+  - unauthenticated API access
+  - DOM-level confirmation that the login form is not rendered
+
 ## Useful Debugging Moves
 
 These were especially useful.
@@ -323,6 +378,7 @@ Useful commands:
 This directly exposed:
 
 - the infinite loop in port assignment
+- the order in which validation reused stale images versus fresh builds
 
 It is the best tool when the validation shell itself appears hung.
 
@@ -342,7 +398,7 @@ Never invert that order.
 
 The repo-local validation now passes with:
 
-- `13` pass
+- `16` pass
 - `0` fail
 - `0` warn
 
@@ -352,6 +408,8 @@ This includes:
 - fail-closed behavior
 - child Docker wrapper behavior
 - Web UI reachability
+- automatic host-port fallback for both SSH and Web
+- no-login Web access verification
 
 ### Manual protected validation
 
@@ -407,6 +465,14 @@ Look only at the Web/runtime overlap:
 - browser/runtime package changes
 
 Do not blindly mirror their whole container architecture.
+
+### When revalidating local Docker changes
+
+Be careful about image freshness:
+
+1. use a unique image tag per validation run or force-rebuild explicitly
+2. confirm the container actually contains the changed service scripts
+3. only then trust a behavioral failure as a product regression
 
 ## Remaining Known Future Work
 

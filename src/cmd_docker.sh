@@ -43,6 +43,109 @@ _dk_port_dir="/tmp/cac-docker-ports"
 _dk_image="${CAC_DOCKER_IMAGE_REPO}:${CAC_DOCKER_IMAGE_TAG}"
 _dk_build_file="docker-compose.build.yml"
 
+_dk_host_port_available() {
+  local bind_addr="$1" port="$2"
+  python3 - "$bind_addr" "$port" <<'PY'
+import socket, sys
+host = sys.argv[1] or "0.0.0.0"
+port = int(sys.argv[2])
+s = socket.socket()
+s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+try:
+    s.bind((host, port))
+except OSError:
+    print("0")
+else:
+    print("1")
+finally:
+    s.close()
+PY
+}
+
+_dk_next_free_host_port() {
+  local bind_addr="$1" start_port="$2"
+  shift 2
+  local -a reserved=("$@")
+  local port="$start_port" limit=$((start_port + 100)) skip reserved_port
+  while [[ "$port" -le "$limit" ]]; do
+    skip=0
+    for reserved_port in "${reserved[@]:-}"; do
+      if [[ -n "$reserved_port" && "$port" == "$reserved_port" ]]; then
+        skip=1
+        break
+      fi
+    done
+    if [[ "$skip" -eq 0 ]] && [[ "$(_dk_host_port_available "$bind_addr" "$port")" == "1" ]]; then
+      printf '%s\n' "$port"
+      return 0
+    fi
+    port=$((port + 1))
+  done
+  return 1
+}
+
+_dk_prepare_host_ports() {
+  local current_state="${1:-}"
+
+  if [[ "$current_state" == "running" ]]; then
+    return 0
+  fi
+
+  local ssh_enabled ssh_bind ssh_port web_enabled web_bind web_port next_port changed=0
+  ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
+  ssh_enabled="${ssh_enabled:-1}"
+  ssh_bind="${CAC_HOST_SSH_BIND:-$(_dk_read_env CAC_HOST_SSH_BIND)}"
+  ssh_bind="${ssh_bind:-0.0.0.0}"
+  ssh_port="${CAC_HOST_SSH_PORT:-$(_dk_read_env CAC_HOST_SSH_PORT)}"
+  ssh_port="${ssh_port:-2222}"
+
+  web_enabled="${CAC_ENABLE_WEB:-$(_dk_read_env CAC_ENABLE_WEB)}"
+  web_enabled="${web_enabled:-1}"
+  web_bind="${CAC_HOST_WEB_BIND:-$(_dk_read_env CAC_HOST_WEB_BIND)}"
+  web_bind="${web_bind:-0.0.0.0}"
+  web_port="${CAC_HOST_WEB_PORT:-$(_dk_read_env CAC_HOST_WEB_PORT)}"
+  web_port="${web_port:-3001}"
+
+  if [[ "$ssh_enabled" != "0" ]] && [[ "$(_dk_host_port_available "$ssh_bind" "$ssh_port")" != "1" ]]; then
+    next_port="$(_dk_next_free_host_port "$ssh_bind" "$ssh_port")" || {
+      _err "No free SSH port found starting from ${ssh_port}"
+      return 1
+    }
+    _warn "SSH port ${ssh_bind}:${ssh_port} is occupied, switching to ${next_port}"
+    _dk_write_env CAC_HOST_SSH_PORT "$next_port"
+    ssh_port="$next_port"
+    changed=1
+  fi
+
+  if [[ "$web_enabled" != "0" ]] && [[ "$(_dk_host_port_available "$web_bind" "$web_port")" != "1" ]]; then
+    next_port="$(_dk_next_free_host_port "$web_bind" "$web_port" "$ssh_port")" || {
+      _err "No free Web UI port found starting from ${web_port}"
+      return 1
+    }
+    _warn "Web UI port ${web_bind}:${web_port} is occupied, switching to ${next_port}"
+    _dk_write_env CAC_HOST_WEB_PORT "$next_port"
+    web_port="$next_port"
+    changed=1
+  fi
+
+  if [[ "$changed" -eq 1 ]]; then
+    _dk_load_env
+  fi
+}
+
+_dk_web_enabled() {
+  local web_enabled
+  web_enabled="${CAC_ENABLE_WEB:-$(_dk_read_env CAC_ENABLE_WEB)}"
+  web_enabled="${web_enabled:-1}"
+  [[ "$web_enabled" != "0" ]]
+}
+
+_dk_web_port() {
+  local web_port
+  web_port="${CAC_HOST_WEB_PORT:-$(_dk_read_env CAC_HOST_WEB_PORT)}"
+  printf '%s\n' "${web_port:-3001}"
+}
+
 _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
 }
@@ -297,7 +400,7 @@ _dk_prompt_value() {
 }
 
 _dk_guess_child_proxy_url() {
-  local mode="$1" raw="$2" host="" port="" scheme="" rest="" tail=""
+  local mode="$1" raw="$2" host="" port="" scheme="" rest="" tail="" auth="" compact_user="" compact_pass=""
   [[ -z "$raw" ]] && return 0
 
   case "$raw" in
@@ -306,7 +409,10 @@ _dk_guess_child_proxy_url() {
         socks5://*|socks5h://*|http://*|https://*)
           scheme="${raw%%://*}"
           rest="${raw#*://}"
-          [[ "$rest" == *"@"* ]] && rest="${rest#*@}"
+          if [[ "$rest" == *"@"* ]]; then
+            auth="${rest%%@*}@"
+            rest="${rest#*@}"
+          fi
           host="${rest%%:*}"
           tail="${rest#*:}"
           port="${tail%%/*}"
@@ -318,7 +424,10 @@ _dk_guess_child_proxy_url() {
       ;;
     *)
       scheme="socks5h"
-      IFS=: read -r host port _ <<<"$raw"
+      IFS=: read -r host port compact_user compact_pass <<<"$raw"
+      if [[ -n "$compact_user" ]]; then
+        auth="${compact_user}:${compact_pass}@"
+      fi
       ;;
   esac
 
@@ -326,7 +435,7 @@ _dk_guess_child_proxy_url() {
   if [[ "$mode" == "local" ]] && [[ "$host" == "127.0.0.1" || "$host" == "localhost" ]]; then
     host="host.docker.internal"
   fi
-  printf '%s://%s:%s\n' "$scheme" "$host" "$port"
+  printf '%s://%s%s:%s\n' "$scheme" "$auth" "$host" "$port"
 }
 
 _dk_normalize_proxy_uri() {
@@ -733,7 +842,7 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref ssh_enabled ssh_port ssh_password
+  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref ssh_enabled ssh_port ssh_password web_enabled web_port web_bind
   proxy=$(_dk_prompt_value "Proxy URI (SOCKS5 compact host:port or explicit http:// / socks5h://)" "$(_dk_read_env PROXY_URI)" 1) || return 1
 
   detected_mode=$(_dk_detect_mode)
@@ -782,6 +891,12 @@ _dk_cmd_setup() {
   ssh_enabled="${ssh_enabled:-1}"
   ssh_port="${CAC_HOST_SSH_PORT:-$(_dk_read_env CAC_HOST_SSH_PORT)}"
   ssh_port="${ssh_port:-2222}"
+  web_enabled="${CAC_ENABLE_WEB:-$(_dk_read_env CAC_ENABLE_WEB)}"
+  web_enabled="${web_enabled:-1}"
+  web_port="${CAC_HOST_WEB_PORT:-$(_dk_read_env CAC_HOST_WEB_PORT)}"
+  web_port="${web_port:-3001}"
+  web_bind="${CAC_HOST_WEB_BIND:-$(_dk_read_env CAC_HOST_WEB_BIND)}"
+  web_bind="${web_bind:-0.0.0.0}"
   ssh_password="${CAC_SSH_PASSWORD:-$(_dk_read_env CAC_SSH_PASSWORD)}"
   ssh_password="${ssh_password:-cherny}"
   image_ref="${CAC_DOCKER_IMAGE:-$(_dk_read_env CAC_DOCKER_IMAGE)}"
@@ -845,6 +960,9 @@ _dk_cmd_setup() {
   if [[ "$ssh_enabled" != "0" ]]; then
     _info "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
   fi
+  if [[ "$web_enabled" != "0" ]]; then
+    _info "Web UI: \033[1mhttp://127.0.0.1:${web_port}\033[0m (bind: ${web_bind})"
+  fi
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
   _info "Container Docker API: \033[1mtcp://${gateway_name}:2375\033[0m (via docker-proxy sidecar)"
   _info "Next: \033[1mcac docker create\033[0m"
@@ -867,10 +985,12 @@ _dk_cmd_create() {
 
 _dk_cmd_start() {
   _dk_init || return 1
-  local ssh_enabled ssh_port
+  local ssh_enabled ssh_port web_port current_state
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
   _dk_assert_docker_cli_compat || return 1
+  current_state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
+  _dk_prepare_host_ports "$current_state" || return 1
   _info "Starting container..."
   if _dk_should_build_local; then
     if _dk_force_local_rebuild; then
@@ -902,6 +1022,10 @@ _dk_cmd_start() {
     _info "Check with:   \033[1mcac docker check\033[0m"
     if [[ "$ssh_enabled" != "0" ]]; then
       _info "SSH with:     \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
+    fi
+    if _dk_web_enabled; then
+      web_port="$(_dk_web_port)"
+      _info "Web UI:       \033[1mhttp://127.0.0.1:${web_port}\033[0m"
     fi
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
     _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_current 2>/dev/null || echo unset))"
@@ -937,6 +1061,8 @@ _dk_cmd_rebuild() {
 
   echo ""
   if [[ "$state" == "running" || "$state" == "exited" || "$state" == "created" || "$state" == "restarting" ]]; then
+    _dk_load_env
+    _dk_prepare_host_ports "$state" || return 1
     _info "Recreating existing container to use the rebuilt image..."
     _dk_compose up -d --force-recreate || return 1
     if _dk_wait_runtime_ready; then
@@ -960,7 +1086,7 @@ _dk_cmd_enter() {
 
 _dk_cmd_check() {
   _dk_init || return 1
-  local rc=0 ssh_enabled ssh_port
+  local rc=0 ssh_enabled ssh_port web_port
   _dk_run_cac_check || rc=1
   ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
   ssh_enabled="${ssh_enabled:-1}"
@@ -980,6 +1106,24 @@ PY
       _ok "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
     else
       _err "SSH port 127.0.0.1:${ssh_port} is not reachable"
+      rc=1
+    fi
+    echo ""
+  fi
+
+  if _dk_web_enabled; then
+    web_port="$(_dk_web_port)"
+    if command -v nc >/dev/null 2>&1 && nc -z 127.0.0.1 "${web_port}" >/dev/null 2>&1; then
+      _ok "Web UI: \033[1mhttp://127.0.0.1:${web_port}\033[0m"
+    elif python3 - "$web_port" <<'PY' >/dev/null 2>&1
+import socket, sys
+s = socket.create_connection(("127.0.0.1", int(sys.argv[1])), timeout=3)
+s.close()
+PY
+    then
+      _ok "Web UI: \033[1mhttp://127.0.0.1:${web_port}\033[0m"
+    else
+      _err "Web UI port 127.0.0.1:${web_port} is not reachable"
       rc=1
     fi
     echo ""
@@ -1047,6 +1191,7 @@ _dk_cmd_logs() {
 _dk_cmd_status() {
   _dk_init || return 1
   _dk_load_env
+  local web_enabled web_port
   echo ""
   printf "\033[1mcac docker status\033[0m\n"
   echo ""
@@ -1077,11 +1222,16 @@ _dk_cmd_status() {
   ssh_enabled="${ssh_enabled:-1}"
   ssh_port=$(_dk_read_env CAC_HOST_SSH_PORT)
   ssh_port="${ssh_port:-2222}"
+  web_enabled=$(_dk_read_env CAC_ENABLE_WEB)
+  web_enabled="${web_enabled:-1}"
+  web_port=$(_dk_read_env CAC_HOST_WEB_PORT)
+  web_port="${web_port:-3001}"
   [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
   [[ -n "$docker_host" ]] && printf "  Container Docker API: %s\n" "$docker_host"
   [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
   [[ -n "$child_proxy" ]] && printf "  Child proxy:%s\n" " $child_proxy"
   [[ "$ssh_enabled" != "0" ]] && printf "  SSH:        ssh -p %s %s@127.0.0.1\n" "$ssh_port" "${CAC_FAKE_USER:-cherny}"
+  [[ "$web_enabled" != "0" ]] && printf "  Web UI:     http://127.0.0.1:%s\n" "$web_port"
 
   local state
   state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")

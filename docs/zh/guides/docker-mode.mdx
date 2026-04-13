@@ -21,7 +21,8 @@ cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 执行 `cac docker start` 后，宿主当前目录会挂载到主容器内的 `/workspace`。
 默认运行用户仍然是非 root，但现在带有免密码 `sudo`，方便你在容器内临时安装额外软件或做一次性维护。
 基础镜像也会默认预装一组更实用的常用数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`，以及 `vim`、`tmux`、`less`、`bat` 这类终端常用工具。
-Docker 模式默认还会把 SSH 发布到 `127.0.0.1:2222`，宿主机可以直接密码登录主容器，不需要额外导入公钥。
+Docker 模式默认还会把 SSH 和 CloudCLI Web UI 发布到宿主机；如果请求的端口已经被占用，会自动顺延到下一个空闲端口，并把结果写回 `docker/.env`。
+Web UI 默认使用 Docker 专用的免登录模式，正常情况下打开页面就会直接进入 Claude 的网页界面，而不是停在 CloudCLI 登录页。
 
 ## 设置
 
