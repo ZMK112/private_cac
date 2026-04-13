@@ -60,6 +60,10 @@
   - `WORKSPACES_ROOT` / runtime env glue
   - `Xvfb` / `Chromium` / `Playwright`
   - startup/health behavior
+- Two Web UX behaviors are mandatory compatibility requirements for future upstream changes:
+  - no-login Docker Web mode must keep working; opening the Web UI should go straight into the app instead of stopping on CloudCLI auth pages
+  - shell `Disconnect` must keep the shell disconnected until the user explicitly clicks `Connect`
+- If upstream CloudCLI, HolyClaude, or related Web/runtime layers are refactored or updated, these two behaviors must be revalidated and, if broken, fixed before the update is considered complete.
 - This should make future HolyClaude Web-related updates easier to port with minimal churn.
 - Detailed analysis and patch map notes live in `docs/superpowers/plans/2026-04-07-cloudcli-cac-web-analysis.md`.
 - Proposed implementation and upstream-tracking workflow live in `docs/superpowers/plans/2026-04-07-cloudcli-cac-web-implementation-plan.md`.
@@ -96,4 +100,6 @@
   - no-login Web access
   - occupied-port auto-fallback for SSH and Web
   - shell Disconnect behavior: clicking `Disconnect` in Web UI must keep the shell disconnected until the user explicitly clicks `Connect`; switching session/project or clicking `Restart` must still allow auto-reconnect
+- Upstream upgrade gate:
+  - whenever CloudCLI, HolyClaude Web glue, or related shell/Web runtime code changes, re-check both no-login access and Disconnect behavior as required regressions, not optional polish
 - Current local validation result for this branch: `16 pass / 0 fail / 0 warn`
