@@ -102,4 +102,4 @@
   - shell Disconnect behavior: clicking `Disconnect` in Web UI must keep the shell disconnected until the user explicitly clicks `Connect`; switching session/project or clicking `Restart` must still allow auto-reconnect
 - Upstream upgrade gate:
   - whenever CloudCLI, HolyClaude Web glue, or related shell/Web runtime code changes, re-check both no-login access and Disconnect behavior as required regressions, not optional polish
-- Current local validation result for this branch: `16 pass / 0 fail / 0 warn`
+- Current local validation result for this branch: `17 pass / 0 fail / 0 warn`

@@ -40,6 +40,7 @@ Docker mode now includes a browser-accessible CloudCLI Web UI in the main contai
 - Backed by the same protected main container runtime used for `cac docker enter`
 - Intended to use the current active `cac` env inside Docker mode
 - Runs in no-login platform mode by default for Docker mode, so opening the page should go straight into the app instead of stopping on the CloudCLI login form
+- Security note: with the default `CAC_HOST_WEB_BIND=0.0.0.0`, that no-login Web UI is reachable from your LAN. Use only on trusted networks, or set `CAC_HOST_WEB_BIND=127.0.0.1`.
 
 Open on the host:
 
@@ -98,3 +99,4 @@ Mode is auto-detected based on your Docker installation.
 - To keep SSH localhost-only, set `CAC_HOST_SSH_BIND=127.0.0.1` and restart the stack.
 - Docker mode now publishes the Web UI on `0.0.0.0:${CAC_HOST_WEB_PORT:-3001}` by default.
 - To keep the Web UI localhost-only, set `CAC_HOST_WEB_BIND=127.0.0.1` and restart the stack.
+- If you keep both defaults (`CAC_HOST_SSH_BIND=0.0.0.0` and `CAC_HOST_WEB_BIND=0.0.0.0`), remember that LAN clients can reach both password-auth SSH and the no-login Web UI.

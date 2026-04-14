@@ -23,6 +23,7 @@ The default runtime user remains non-root, but now has passwordless `sudo` for a
 The base image also preinstalls a small but practical data/dev CLI set: `jq`, `ripgrep`, `fd`, `tree`, `sqlite3`, `zip`, `unzip`, plus terminal staples like `vim`, `tmux`, `less`, and `bat`.
 Docker mode also publishes SSH and the CloudCLI Web UI on the host by default, and if either requested port is already occupied it automatically advances to the next free one and writes that port back to `docker/.env`.
 The Web UI runs in Docker-specific no-login mode, so opening it should go straight into Claude's web shell instead of stopping on a CloudCLI auth screen.
+That also means the default `0.0.0.0` bind is intentionally convenient rather than conservative: LAN clients can reach the Web UI unless you change `CAC_HOST_WEB_BIND` to `127.0.0.1`.
 
 ## Setup
 

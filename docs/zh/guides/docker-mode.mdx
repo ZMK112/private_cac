@@ -23,6 +23,7 @@ cac docker enter     # 进入容器 Shell — claude + cac 已就绪
 基础镜像也会默认预装一组更实用的常用数据/开发 CLI：`jq`、`ripgrep`、`fd`、`tree`、`sqlite3`、`zip`、`unzip`，以及 `vim`、`tmux`、`less`、`bat` 这类终端常用工具。
 Docker 模式默认还会把 SSH 和 CloudCLI Web UI 发布到宿主机；如果请求的端口已经被占用，会自动顺延到下一个空闲端口，并把结果写回 `docker/.env`。
 Web UI 默认使用 Docker 专用的免登录模式，正常情况下打开页面就会直接进入 Claude 的网页界面，而不是停在 CloudCLI 登录页。
+这也意味着默认的 `0.0.0.0` 绑定更偏向“方便使用”而不是“默认保守”：如果你不改 `CAC_HOST_WEB_BIND`，局域网设备也能访问这个免登录 Web UI。
 
 ## 设置
 

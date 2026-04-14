@@ -165,6 +165,113 @@ _dk_mask_proxy_display() {
   printf '%s\n' "$proxy"
 }
 
+_dk_is_localhost_bind() {
+  case "${1:-}" in
+    127.0.0.1|localhost) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+_dk_warn_web_exposure() {
+  local web_enabled web_bind ssh_enabled ssh_bind ssh_password
+  web_enabled="${CAC_ENABLE_WEB:-$(_dk_read_env CAC_ENABLE_WEB)}"
+  web_enabled="${web_enabled:-1}"
+  web_bind="${CAC_HOST_WEB_BIND:-$(_dk_read_env CAC_HOST_WEB_BIND)}"
+  web_bind="${web_bind:-0.0.0.0}"
+  ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
+  ssh_enabled="${ssh_enabled:-1}"
+  ssh_bind="${CAC_HOST_SSH_BIND:-$(_dk_read_env CAC_HOST_SSH_BIND)}"
+  ssh_bind="${ssh_bind:-0.0.0.0}"
+  ssh_password="${CAC_SSH_PASSWORD:-$(_dk_read_env CAC_SSH_PASSWORD)}"
+  ssh_password="${ssh_password:-cherny}"
+
+  if [[ "$web_enabled" != "0" ]] && ! _dk_is_localhost_bind "$web_bind"; then
+    _warn "Web UI is LAN-reachable and Docker Web mode bypasses the CloudCLI login screen."
+    _warn "Use only on trusted networks, or set CAC_HOST_WEB_BIND=127.0.0.1 or CAC_ENABLE_WEB=0."
+  fi
+
+  if [[ "$ssh_enabled" != "0" ]] && ! _dk_is_localhost_bind "$ssh_bind" && [[ "$ssh_password" == "cherny" ]]; then
+    _warn "SSH is also LAN-reachable with the default password. Change CAC_SSH_PASSWORD or set CAC_HOST_SSH_BIND=127.0.0.1."
+  fi
+}
+
+_dk_proxy_url_parts() {
+  local proxy_url="${1:-}"
+  [[ -n "$proxy_url" ]] || return 1
+  python3 - "$proxy_url" <<'PY'
+from urllib.parse import urlsplit
+import sys
+
+raw = sys.argv[1].strip()
+try:
+    parsed = urlsplit(raw)
+except Exception:
+    raise SystemExit(1)
+
+if not parsed.scheme or not parsed.hostname or parsed.port is None:
+    raise SystemExit(1)
+
+print(f"{parsed.scheme}|{parsed.hostname}|{parsed.port}|{parsed.username or ''}|{parsed.password or ''}")
+PY
+}
+
+_dk_normalize_child_proxy_host_for_compare() {
+  local mode="$1" host="${2:-}"
+  if [[ "$mode" == "local" ]] && [[ "$host" == "127.0.0.1" || "$host" == "localhost" ]]; then
+    printf '%s\n' "host.docker.internal"
+    return 0
+  fi
+  printf '%s\n' "$host"
+}
+
+_dk_should_migrate_child_proxy() {
+  local mode="$1" current="$2" expected="$3"
+  [[ -n "$expected" ]] || return 1
+  [[ -z "$current" ]] && return 0
+  [[ "$current" == "$expected" ]] && return 1
+
+  local current_parts expected_parts
+  current_parts="$(_dk_proxy_url_parts "$current" 2>/dev/null || true)"
+  expected_parts="$(_dk_proxy_url_parts "$expected" 2>/dev/null || true)"
+  [[ -n "$current_parts" && -n "$expected_parts" ]] || return 1
+
+  local current_scheme current_host current_port current_user current_pass
+  local expected_scheme expected_host expected_port expected_user expected_pass
+  IFS='|' read -r current_scheme current_host current_port current_user current_pass <<<"$current_parts"
+  IFS='|' read -r expected_scheme expected_host expected_port expected_user expected_pass <<<"$expected_parts"
+
+  current_host="$(_dk_normalize_child_proxy_host_for_compare "$mode" "$current_host")"
+  expected_host="$(_dk_normalize_child_proxy_host_for_compare "$mode" "$expected_host")"
+
+  if [[ "$current_scheme" == "$expected_scheme" ]] && [[ "$current_host" == "$expected_host" ]] && [[ "$current_port" == "$expected_port" ]]; then
+    if [[ -n "$expected_user" ]] && [[ -z "$current_user$current_pass" ]]; then
+      return 0
+    fi
+    if [[ -z "$expected_user$expected_pass" ]] && [[ -z "$current_user$current_pass" ]]; then
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+_dk_maybe_migrate_child_proxy() {
+  local mode proxy expected current
+  mode="$(_dk_get_mode)"
+  proxy="${CAC_PROXY_URI:-$(_dk_read_env PROXY_URI)}"
+  expected="$(_dk_guess_child_proxy_url "$mode" "$proxy")"
+  [[ -n "$expected" ]] || return 0
+  current="${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}"
+
+  if _dk_should_migrate_child_proxy "$mode" "$current" "$expected"; then
+    if [[ -n "$current" ]]; then
+      _warn "Refreshing stale child proxy setting from PROXY_URI."
+    fi
+    _dk_write_env CAC_CHILD_CONTAINER_PROXY_URL "$expected"
+    _dk_load_env
+  fi
+}
+
 _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
 }
@@ -984,6 +1091,7 @@ _dk_cmd_setup() {
   fi
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
   _info "Container Docker API: \033[1mtcp://${gateway_name}:2375\033[0m (via docker-proxy sidecar)"
+  _dk_warn_web_exposure
   _info "Next: \033[1mcac docker create\033[0m"
 }
 
@@ -1007,6 +1115,7 @@ _dk_cmd_start() {
   local ssh_enabled ssh_port web_port current_state
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
+  _dk_maybe_migrate_child_proxy
   _dk_assert_docker_cli_compat || return 1
   current_state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
   _dk_prepare_host_ports "$current_state" || return 1
@@ -1046,6 +1155,7 @@ _dk_cmd_start() {
       web_port="$(_dk_web_port)"
       _info "Web UI:       \033[1mhttp://127.0.0.1:${web_port}\033[0m"
     fi
+    _dk_warn_web_exposure
     _info "Forward port: \033[1mcac docker port <port>\033[0m"
     _info "Workspace:    \033[1m/workspace\033[0m (host: $(_dk_workspace_host_current 2>/dev/null || echo unset))"
   else
@@ -1081,6 +1191,7 @@ _dk_cmd_rebuild() {
   echo ""
   if [[ "$state" == "running" || "$state" == "exited" || "$state" == "created" || "$state" == "restarting" ]]; then
     _dk_load_env
+    _dk_maybe_migrate_child_proxy
     _dk_prepare_host_ports "$state" || return 1
     _info "Recreating existing container to use the rebuilt image..."
     _dk_compose up -d --force-recreate || return 1
@@ -1263,6 +1374,8 @@ _dk_cmd_status() {
   health=$(_dk_compose ps --format '{{.Health}}' "$_dk_service" 2>/dev/null || echo "")
   [[ -n "$health" ]] && printf "  Health:     %s\n" "$health"
 
+  echo ""
+  _dk_warn_web_exposure
   echo ""
   printf "\033[1mPorts\033[0m\n"
   _dk_port_list

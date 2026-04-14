@@ -5,6 +5,20 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.4.4-zmk.12-web.2
+<sub>2026-04-14</sub>
+
+**Web workflow hardening**
+
+- Fixed Docker-mode child-container proxy derivation so credentials are preserved when `CAC_CHILD_CONTAINER_PROXY_URL` is inferred from `PROXY_URI`.
+- Added automatic migration for stale child-proxy values in existing `docker/.env` files when Docker mode starts from an older config that dropped proxy credentials.
+- Fixed `SINGBOX_ENABLE=0` runtime proxy handling so explicit `http://`, `https://`, `socks5://`, and `socks5h://` URLs no longer fail fast incorrectly.
+- Fixed the CloudCLI shell Disconnect regression again by separating manual disconnect from internal reconnect flows; a user click on `Disconnect` now stays disconnected until `Connect` is clicked explicitly.
+- Added a repeatable Playwright-based Docker validation step for the Disconnect flow so future CloudCLI upgrades must prove that manual disconnect really stays disconnected.
+- Added explicit CLI and docs warnings that the default `0.0.0.0` bind exposes the no-login Web UI to the LAN unless the user switches it back to localhost-only mode.
+- Redacted child-proxy credentials from `cac docker setup` and `cac docker status` output.
+- Tightened project memory and developer notes so no-login Web mode and Disconnect behavior are mandatory regression checks for future upstream updates.
+
 ## v1.4.4-zmk.12-web.1
 <sub>2026-04-07</sub>
 

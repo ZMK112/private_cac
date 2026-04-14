@@ -40,6 +40,7 @@ Docker 模式现在在主容器内包含一个可通过浏览器访问的 CloudC
 - 运行在和 `cac docker enter` 相同的主保护容器里
 - 目标是直接使用 Docker 模式里的当前活动 `cac` 环境
 - 默认以免登录的平台模式运行，正常情况下打开页面会直接进入应用，而不是停在 CloudCLI 登录页
+- 安全提示：默认 `CAC_HOST_WEB_BIND=0.0.0.0` 时，这个免登录 Web UI 会直接暴露给局域网。只应在受信任网络使用，或者改成 `CAC_HOST_WEB_BIND=127.0.0.1`。
 
 在宿主机上打开：
 
@@ -98,3 +99,4 @@ trojan://...               # Trojan
 - 如果要改回仅本机访问，请设置 `CAC_HOST_SSH_BIND=127.0.0.1` 后重启栈。
 - Docker 模式现在会默认把 Web UI 发布到 `0.0.0.0:${CAC_HOST_WEB_PORT:-3001}`。
 - 如果要改回仅本机访问，请设置 `CAC_HOST_WEB_BIND=127.0.0.1` 后重启栈。
+- 如果你保留这两个默认值（`CAC_HOST_SSH_BIND=0.0.0.0` 和 `CAC_HOST_WEB_BIND=0.0.0.0`），要意识到局域网内其他设备既能访问密码登录 SSH，也能直接访问免登录 Web UI。

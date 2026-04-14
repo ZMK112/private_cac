@@ -5,6 +5,20 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.4.4-zmk.12-web.2
+<sub>2026-04-14</sub>
+
+**Web 工作流加固**
+
+- 修复 Docker 模式 child-container 代理派生时丢失认证信息的问题：当 `CAC_CHILD_CONTAINER_PROXY_URL` 从 `PROXY_URI` 推导时，现在会保留账号密码。
+- 为旧版 `docker/.env` 增加 stale child proxy 自动迁移：如果历史配置因为老 bug 丢了代理认证信息，Docker 模式启动时会自动刷新成当前 `PROXY_URI` 对应的正确值。
+- 修复 `SINGBOX_ENABLE=0` 下的运行时代理处理：显式 `http://`、`https://`、`socks5://`、`socks5h://` URL 不再被错误拒绝。
+- 再次修复 CloudCLI shell 中 Disconnect 回归：手动点击 `Disconnect` 后会保持断开，直到用户显式点击 `Connect`；内部切换/重启流程仍允许自动重连。
+- 增加一条可重复的 Playwright Docker 自动化验证，专门检查 Disconnect 行为，确保以后 CloudCLI 升级时这条回归不会再悄悄回来。
+- 增加 CLI 和文档中的显式风险提示：默认 `0.0.0.0` 绑定会把免登录 Web UI 暴露给局域网，除非用户手动改回仅本机访问。
+- 对 `cac docker setup` 和 `cac docker status` 中的 child proxy 输出做脱敏，避免直接显示认证信息。
+- 收紧项目记忆和开发笔记：以后上游升级时，Web 免登录和 Disconnect 行为都必须作为必查回归项。
+
 ## v1.4.4-zmk.12-web.1
 <sub>2026-04-07</sub>
 

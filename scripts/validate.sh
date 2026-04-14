@@ -491,6 +491,89 @@ PY
   fi
 }
 
+ensure_web_project() {
+  local projects_json project_json display_name
+  projects_json="$(curl --max-time 10 -fsS "http://127.0.0.1:${WEB_PORT}/api/projects")" || return 1
+  display_name="$(
+    PROJECTS_JSON="$projects_json" python3 - <<'PY'
+import json, os
+
+projects = json.loads(os.environ["PROJECTS_JSON"])
+for project in projects:
+    if project.get("fullPath") == "/workspace" or project.get("path") == "/workspace":
+        print(project.get("displayName") or project.get("name") or "workspace")
+        break
+PY
+  )"
+
+  if [[ -n "$display_name" ]]; then
+    printf '%s\n' "$display_name"
+    return 0
+  fi
+
+  project_json="$(curl --max-time 10 -fsS -X POST -H 'Content-Type: application/json' \
+    -d '{"path":"/workspace"}' "http://127.0.0.1:${WEB_PORT}/api/projects/create")" || return 1
+  PROJECT_JSON="$project_json" python3 - <<'PY'
+import json, os, sys
+
+payload = json.loads(os.environ["PROJECT_JSON"])
+project = payload.get("project") or {}
+name = project.get("displayName") or project.get("name") or "workspace"
+sys.stdout.write(name)
+PY
+}
+
+docker_web_disconnect_step() {
+  local project_display_name
+  project_display_name="$(ensure_web_project)" || return 1
+
+  docker exec "$CONTAINER_NAME" node - "$WEB_PORT" "$project_display_name" <<'NODE'
+const port = process.argv[2];
+const projectName = process.argv[3];
+
+(async () => {
+  const { chromium } = require('playwright');
+  const browser = await chromium.launch({
+    headless: true,
+    executablePath: process.env.CHROME_PATH || '/usr/bin/chromium',
+    args: ['--no-sandbox', '--disable-gpu'],
+  });
+
+  try {
+    const page = await browser.newPage({ locale: 'en-US' });
+    const baseUrl = `http://127.0.0.1:${port}`;
+
+    await page.goto(baseUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    await page.getByText(projectName, { exact: true }).first().click({ timeout: 20000 });
+    await page.getByRole('button', { name: 'Shell' }).click({ timeout: 10000 });
+
+    const disconnectButton = page.getByRole('button', { name: 'Disconnect' });
+    const connectButton = page.getByRole('button', { name: 'Continue in Shell' });
+
+    await disconnectButton.waitFor({ state: 'visible', timeout: 20000 });
+    await disconnectButton.click();
+    await connectButton.waitFor({ state: 'visible', timeout: 10000 });
+    await page.waitForTimeout(3000);
+
+    if (await disconnectButton.isVisible().catch(() => false)) {
+      throw new Error('Disconnect button became visible again without a manual reconnect');
+    }
+    if (!(await connectButton.isVisible().catch(() => false))) {
+      throw new Error('Connect button did not remain visible after manual disconnect');
+    }
+
+    await connectButton.click();
+    await disconnectButton.waitFor({ state: 'visible', timeout: 15000 });
+  } finally {
+    await browser.close();
+  }
+})().catch((error) => {
+  console.error(error.stack || String(error));
+  process.exit(1);
+});
+NODE
+}
+
 docker_cac_check_step() {
   docker_cmd check
 }
@@ -573,6 +656,7 @@ main() {
     run_step "docker-status" docker_status_step || capture_docker_debug "docker-status"
     run_step "docker-web-ui" docker_web_ui_step || capture_docker_debug "docker-web-ui"
     run_step "docker-web-ui-no-login" docker_web_nologin_step || capture_docker_debug "docker-web-ui-no-login"
+    run_step "docker-web-ui-disconnect" docker_web_disconnect_step || capture_docker_debug "docker-web-ui-disconnect"
     run_step "docker-check-command" docker_cac_check_step || capture_docker_debug "docker-check-command"
     run_step "container-cac-check" docker_container_check_step || capture_docker_debug "container-cac-check"
     run_step "child-docker-wrapper" docker_child_wrapper_step || capture_docker_debug "child-docker-wrapper"
