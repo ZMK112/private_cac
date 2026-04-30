@@ -5,6 +5,38 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.4.4-zmk.13-web.3
+<sub>2026-04-30</sub>
+
+**Docker workflow hardening and data-safety update**
+
+- Added safer runtime Docker setup behavior:
+  - `cac docker setup` now supports a shell choice (`bash` / `zsh`)
+  - runtime proxy updates are saved first and only restart an already-running stack after explicit confirmation
+  - switching `CAC_DATA` now requires explicit confirmation when it would move persisted Claude state
+- Added preserve-by-default Docker data safety messaging:
+  - `install.sh` now warns that Docker rebuilds/reinstalls preserve Claude login state, memory, and session history by default
+  - `cac docker status` now prints both the configured `CAC_DATA` value and its resolved absolute path
+- Added direct share-link compatibility and validation updates:
+  - accepted `socks://BASE64(user:pass)@host:port#tag` input in Docker setup
+  - validated real `socks://...` and `ss://...` share-link proxy flows end-to-end, including setup-before-create and runtime proxy switching
+- Improved `cac docker check` ergonomics:
+  - output now streams progressively instead of appearing only at the end
+  - added a non-gating `SPD` speed line to report proxy throughput without affecting pass/fail
+- Fixed Docker-mode local control-network handling so `cac docker setup` no longer overwrites a chosen control subnet back to a fixed `172.31.255.0/24`, preventing restart-time subnet overlap during validation.
+- Validation now passes end-to-end again after the Docker setup / proxy-switch fixes: `19 pass / 0 fail / 0 warn`.
+
+## v1.4.4-zmk.13-web.2
+<sub>2026-04-30</sub>
+
+**Release packaging fix**
+
+- Fixed the Web-enabled release packaging so vendored CloudCLI source files under nested `data/` directories are no longer dropped by the repo-level `.gitignore`.
+- Restored the missing CloudCLI frontend source files required by the build:
+  - `project-creation-wizard/data/workspaceApi.ts`
+  - `mic-button/data/whisper.ts`
+- This fixes fresh installs from GitHub release source archives and rebuilt portable packages that previously failed during the `npm run build` step inside the Docker image.
+
 ## v1.4.4-zmk.13-web.1
 <sub>2026-04-14</sub>
 

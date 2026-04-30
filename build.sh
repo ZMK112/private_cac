@@ -19,6 +19,9 @@ SOURCES=(
     cmd_stop.sh
     cmd_claude.sh
     cmd_self.sh
+    cmd_docker_common.sh
+    cmd_docker_runtime.sh
+    cmd_docker_ports.sh
     cmd_docker.sh
     cmd_delete.sh
     cmd_version.sh

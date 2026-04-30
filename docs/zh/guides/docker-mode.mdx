@@ -7,6 +7,7 @@ icon: "docker"
 Docker 模式会隔离主 Claude Code 容器：使用独立网络命名空间、sing-box TUN 透明代理、cac 身份保护，并预装 Claude Code。
 
 如果你在 `cac` 容器里启用了子容器工作流，这部分便利性来自通过 sidecar 代理访问宿主 Docker Engine。主 `cac` 容器仍然隔离，但子容器不会自动继承主容器的 leak-safe 网络路径。
+这条分支现在额外加入了一个子容器出网 sidecar：`proxy-bridge` 会接管上游 `PROXY_URI`，再把它重新暴露成标准的带认证 HTTP/SOCKS 代理，因此像 `ss://`、`vmess://` 这类分享链接协议也能被子容器工作流继承。
 
 ## 快速开始
 
@@ -59,6 +60,8 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 
 `BUILD_PROXY` 是可选的，只影响镜像构建阶段的下载；运行时的 TUN 流量由 `PROXY_URI` 控制，不由 `BUILD_PROXY` 控制。
 
+如果 `cac docker create` 或 `cac docker rebuild` 在构建镜像时卡在 `claude.ai/install.sh` 之类的外部下载，优先检查宿主机本地网络；如果本地网络本身不能直连，再额外设置一个标准 `http://...` 或 `socks5h://...` 格式的 `BUILD_PROXY`。
+
 ## 容器内部发生了什么
 
 首次启动时，入口脚本会自动：
@@ -82,6 +85,14 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 
 `/root` 和 `/home` 会通过 bind mount 挂载到 Docker 资源目录下的 `data/`。你的 Claude Code 会话、设置和工作文件在容器重启后依然保留。
 
+升级默认是保留模式：
+
+- `cac docker rebuild`
+- 重新执行 `bash install.sh --local --yes`
+- 镜像更新后的容器重建
+
+这些操作都会保留同一个 `CAC_DATA` 目录下的 Claude 登录状态、凭据、记忆和历史 session。只有你手动删除这个数据目录时，才会真正清空这些内容。
+
 `/workspace` 会从你执行 `cac docker start` 时所在的宿主目录挂载进容器。如果 Claude Code 需要启动带 bind mount 的子容器，应当在你希望暴露的项目根目录下启动 Docker 模式。
 
 ## 运行用户
@@ -97,6 +108,13 @@ ssh -p 2222 cherny@<宿主机IP>
 ```
 
 如果你要改回仅本机访问，请在 `docker/.env` 里设置 `CAC_HOST_SSH_BIND=127.0.0.1` 后重启栈。
+
+如果你想把 Web UI 和 SSH 一起快速改回仅本机访问，可以直接写：
+
+```env
+CAC_HOST_SSH_BIND=127.0.0.1
+CAC_HOST_WEB_BIND=127.0.0.1
+```
 
 同时也保留了后续手动启用公钥登录的能力，但 `cac` 不会导入任何宿主机 SSH key，也不会挂载宿主机 `~/.ssh`。如果你以后想改成公钥登录，请自己把 `authorized_keys` 放进持久化的容器用户家目录，例如 `/home/cherny/.ssh/authorized_keys`。
 

@@ -198,6 +198,64 @@ docker_cli_available() {
     command -v docker >/dev/null 2>&1 && docker version >/dev/null 2>&1
 }
 
+docker_data_dir_from_env() {
+    local env_file="$1" raw base
+    raw="$(read_kv_file "$env_file" CAC_DATA || true)"
+    raw="${raw:-./data}"
+    base="$(cd "$(dirname "$env_file")" && pwd -P)"
+    python3 - "$base" "$raw" <<'PY'
+import os
+import sys
+
+base = sys.argv[1]
+raw = sys.argv[2]
+if os.path.isabs(raw):
+    print(os.path.realpath(raw))
+else:
+    print(os.path.realpath(os.path.join(base, raw)))
+PY
+}
+
+docker_runtime_user_from_env() {
+    local env_file="$1" user
+    user="$(read_kv_file "$env_file" CAC_FAKE_USER || true)"
+    printf '%s\n' "${user:-cherny}"
+}
+
+docker_claude_state_exists() {
+    local data_dir="$1" runtime_user="$2"
+    [[ -d "${data_dir}/home/${runtime_user}/.cac" ]] && return 0
+    [[ -d "${data_dir}/home/${runtime_user}/.claude" ]] && return 0
+    [[ -f "${data_dir}/home/${runtime_user}/.claude.json" ]] && return 0
+    [[ -d "${data_dir}/root/.cac" ]] && return 0
+    [[ -d "${data_dir}/root/.claude" ]] && return 0
+    [[ -f "${data_dir}/root/.claude.json" ]] && return 0
+    return 1
+}
+
+print_docker_data_preserve_notice() {
+    [[ -e "${CAC_HOME}/docker" ]] || return 0
+
+    local env_file="${CAC_HOME}/docker/.env"
+    [[ -f "$env_file" ]] || return 0
+
+    local data_dir runtime_user
+    data_dir="$(docker_data_dir_from_env "$env_file")"
+    runtime_user="$(docker_runtime_user_from_env "$env_file")"
+
+    cyan "Docker Claude state mode: preserve"
+    printf '  data dir: %s\n' "$data_dir"
+
+    if docker_claude_state_exists "$data_dir" "$runtime_user"; then
+        yellow "Existing Claude login/session data detected and will be preserved."
+    else
+        cyan "No existing Claude login/session data detected yet."
+    fi
+
+    yellow "Install / rebuild refreshes containers and images, but does not delete this data directory."
+    yellow "A full reset must be done manually after backup if you really want to erase Claude credentials/history."
+}
+
 refresh_existing_docker_stack() {
     [[ "$INSTALL_MODE" == "local" ]] || return 0
     [[ -e "${CAC_HOME}/docker" ]] || return 0
@@ -492,6 +550,7 @@ main() {
     install_assets
     link_entrypoint
     install_docker_resources
+    print_docker_data_preserve_notice
     initialize_cac
     refresh_existing_docker_stack
     print_completion

@@ -1,0 +1,212 @@
+---
+title: "Docker 发放说明"
+description: "给其他使用者的一页式 cac docker 安装与使用说明。"
+icon: "docker"
+---
+
+这份说明只覆盖 `cac docker`，适合直接发给其他使用者。
+
+## 适用范围
+
+- 你拿到的是 `cac` 的 Docker 版发布包
+- 你只需要安装、启动、进入容器或打开 Web UI
+- 不需要了解 `cac env`、源码开发或其他模式
+
+## 1. 安装
+
+先下载并解压发布包，然后进入解压后的目录执行：
+
+```bash
+cd /path/to/cac
+bash install.sh --local --yes
+```
+
+安装完成后：
+
+- `cac` 命令会安装到 `~/bin/cac`
+- Docker 资源会链接到 `~/.cac/docker`
+
+如果你的终端提示找不到 `cac`，重新打开一个终端窗口再继续。
+
+## 2. 进入你的项目目录
+
+`cac docker start` 会把你当前所在目录挂载到容器里的 `/workspace`，所以要先进入你真正要使用的项目目录：
+
+```bash
+cd /path/to/your/project
+```
+
+## 3. 配置代理
+
+```bash
+cac docker setup
+```
+
+常见可填格式：
+
+```text
+192.168.8.1:7890
+192.168.8.1:7890:myuser:mypassword
+host.docker.internal:7890
+socks5h://host.docker.internal:7890
+socks5h://myuser:mypassword@host.docker.internal:7890
+socks5h://host.docker.internal:7890
+http://host.docker.internal:7890
+http://myuser:mypassword@host.docker.internal:7890
+ss://...
+vmess://...
+vless://...
+trojan://...
+```
+
+说明：
+
+- Docker 模式下，裸 `host:port` 按 `SOCKS5` 处理。
+- 如果你填的是 `127.0.0.1:端口` 或 `localhost:端口`，本地 Docker Desktop 模式下会自动改写成 `host.docker.internal:端口`。
+
+## 4. 创建并启动容器
+
+```bash
+cac docker create
+cac docker start
+```
+
+说明：
+
+- 第一次执行 `create` 可能需要几分钟
+- 如果 Web 或 SSH 端口被占用，系统会自动顺延到下一个空闲端口，不需要手改
+
+## 5. 验证
+
+```bash
+cac docker check
+cac docker status
+```
+
+`cac docker check` 必须全绿。
+
+只有 `cac docker check` 全部通过，才说明 Docker 版的网络隔离、身份保护、SSH/Web 发布都正常；如果有任何一项失败，不要继续使用，先处理报错。
+
+`cac docker status` 会显示当前实际使用的：
+
+- Web 地址
+- SSH 端口
+- 容器状态
+
+## 6. 开始使用
+
+进入容器：
+
+```bash
+cac docker enter
+```
+
+浏览器打开 Web UI：
+
+```text
+http://127.0.0.1:3001
+```
+
+如果 `3001` 已被占用，实际端口以 `cac docker status` 输出为准。
+如果你是从另一台局域网设备访问，把 `127.0.0.1` 换成宿主机 IP。
+
+SSH 连接：
+
+```bash
+ssh -p 2222 cherny@127.0.0.1
+```
+
+如果 `2222` 已被占用，实际端口同样以 `cac docker status` 输出为准。
+如果你是从另一台局域网设备访问，把 `127.0.0.1` 换成宿主机 IP。
+
+## 7. 常用命令
+
+```bash
+cac docker restart
+cac docker stop
+cac docker destroy
+```
+
+## 8. 重要提示
+
+这个 Docker Web 版本默认更偏“开箱即用”：
+
+- Web UI 默认免登录
+- Web 默认监听 `0.0.0.0`
+- SSH 默认监听 `0.0.0.0`
+- SSH 默认用户是 `cherny`
+- SSH 默认密码也是 `cherny`
+
+也就是说，默认情况下，局域网内其他设备也可能访问到你的 Web UI 或 SSH。
+
+如果你只想让本机访问，执行：
+
+```bash
+cat >> ~/.cac/docker/.env <<'EOF'
+CAC_HOST_WEB_BIND=127.0.0.1
+CAC_HOST_SSH_BIND=127.0.0.1
+EOF
+
+cac docker restart
+```
+
+## 9. 如果构建时报 `claude.ai/install.sh` 下载失败
+
+默认情况下，镜像构建阶段走的是宿主机的本地网络，不会自动复用 `cac docker setup` 里填的 `PROXY_URI`。
+
+如果你的本地网络本身不能直连这一步，再额外给构建阶段设置 `BUILD_PROXY`：
+
+```bash
+cat >> ~/.cac/docker/.env <<'EOF'
+BUILD_PROXY=socks5h://host.docker.internal:7890
+EOF
+
+cac docker rebuild
+```
+
+`BUILD_PROXY` 只影响镜像构建下载；容器真正运行后的代理仍然由 `PROXY_URI` 控制。
+
+## 一次性复制版
+
+如果你只是想把最短流程发给别人，可以直接复制下面这一段：
+
+```bash
+# 1. 安装
+cd /path/to/cac
+bash install.sh --local --yes
+
+# 2. 进入你的项目目录
+cd /path/to/your/project
+
+# 3. 配置代理
+# 例如可填写：
+#   192.168.8.1:7890
+#   192.168.8.1:7890:myuser:mypassword
+#   socks5h://host.docker.internal:7890
+#   http://host.docker.internal:7890
+#   ss://...
+cac docker setup
+
+# 4. 创建并启动
+cac docker create
+cac docker start
+
+# 5. 检查（必须全部通过）
+cac docker check
+cac docker status
+
+# 6. 进入容器
+cac docker enter
+```
+
+Web UI 默认地址：
+
+```text
+http://127.0.0.1:3001
+```
+
+SSH 默认命令：
+
+```bash
+ssh -p 2222 cherny@127.0.0.1
+```

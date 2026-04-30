@@ -60,6 +60,7 @@ CAC_HOST_WEB_PORT=3001
 - Web UI 不是一个放宽隔离的独立 sidecar，而是主保护容器的一部分
 - 隐私/网络正确性仍以 `cac docker check` 为准
 - 如果 Docker 模式保护检查回归，即使 Web UI 能打开，也不能视为有效
+- 子容器现在统一通过一个带认证的 `proxy-bridge` sidecar 出网：它会把上游 `PROXY_URI` 转成标准 HTTP/SOCKS 代理地址，因此 `ss://`、`vmess://`、`vless://`、`trojan://` 这类分享链接协议也能被子容器工作流继承。
 
 ## 代理格式
 
@@ -90,6 +91,8 @@ trojan://...               # Trojan
 ## 说明
 
 - `cac docker setup` 会把配置写入当前使用的 Docker 资源目录：本地安装后通常是 `~/.cac/docker/.env`，在源码树中运行时则是 `docker/.env`。
+- Docker 模式会把 `/root` 和 `/home` 持久化到 `CAC_DATA`（默认就是当前 Docker 资源目录下的 `docker/data`）。重建镜像、重建容器或重新安装默认都会保留 Claude 登录状态、记忆和历史 session；只有你手动删除这个数据目录时才会丢失。
+- `cac docker status` 现在会同时显示原始 `CAC_DATA` 设置和解析后的绝对路径，方便你在做任何破坏性清理前先备份。
 - `setup` 向导在正常情况下只会询问代理，部署模式会自动检测，其他启动所需变量会自动写入默认值；只有远程模式的 macvlan 自动探测失败时，才会继续询问网络参数。
 - 在本地 Docker Desktop 模式下，如果你输入的是 `127.0.0.1:port` 或 `localhost:port`，`setup` 会自动改写成 `host.docker.internal:port`。
 - `cac docker enter` 会进入主容器的 shell，里面已经准备好 `claude`、`cac` 和 `docker`。
@@ -100,3 +103,11 @@ trojan://...               # Trojan
 - Docker 模式现在会默认把 Web UI 发布到 `0.0.0.0:${CAC_HOST_WEB_PORT:-3001}`。
 - 如果要改回仅本机访问，请设置 `CAC_HOST_WEB_BIND=127.0.0.1` 后重启栈。
 - 如果你保留这两个默认值（`CAC_HOST_SSH_BIND=0.0.0.0` 和 `CAC_HOST_WEB_BIND=0.0.0.0`），要意识到局域网内其他设备既能访问密码登录 SSH，也能直接访问免登录 Web UI。
+- 如果你想快速改回“仅本机访问”，可以直接在 `docker/.env` 或 `~/.cac/docker/.env` 里写：
+
+```env
+CAC_HOST_SSH_BIND=127.0.0.1
+CAC_HOST_WEB_BIND=127.0.0.1
+```
+
+- `BUILD_PROXY` 是可选的，仅用于镜像构建阶段的下载；如果 `cac docker create` / `cac docker rebuild` 在下载 `claude.ai/install.sh` 之类的外部资源时失败，再额外设置一个标准 `http://...` 或 `socks5h://...` 的 `BUILD_PROXY` 后重试。

@@ -7,7 +7,10 @@ HOST_ROOT="${CAC_SHARED_WORKSPACE_HOST:-}"
 PARENT_CONTAINER="${CAC_PARENT_CONTAINER_NAME:-boris-main}"
 DEFAULT_NETWORK="${CAC_CHILD_CONTAINER_NETWORK_MODE:-bridge}"
 CHILD_PROXY_URL="${CAC_CHILD_CONTAINER_PROXY_URL:-}"
+CHILD_HTTP_PROXY_URL="${CAC_CHILD_CONTAINER_HTTP_PROXY_URL:-${CHILD_PROXY_URL}}"
+CHILD_ALL_PROXY_URL="${CAC_CHILD_CONTAINER_ALL_PROXY_URL:-${CHILD_PROXY_URL}}"
 CHILD_NO_PROXY="${CAC_CHILD_CONTAINER_NO_PROXY:-localhost,127.0.0.1,::1}"
+ADD_HOST_GATEWAY="${CAC_CHILD_CONTAINER_ADD_HOST_GATEWAY:-1}"
 
 if [[ ! -x "$REAL_DOCKER_BIN" ]]; then
   echo "docker wrapper: real docker binary not found at ${REAL_DOCKER_BIN}" >&2
@@ -23,10 +26,14 @@ for arg in "$@"; do
 done
 
 has_network_flag=0
+has_add_host_flag=0
 for arg in "$@"; do
   case "$arg" in
     --network|--net|--network=*|--net=*)
       has_network_flag=1
+      ;;
+    --add-host|--add-host=*)
+      has_add_host_flag=1
       ;;
   esac
 done
@@ -165,15 +172,18 @@ for arg in "$@"; do
       args+=("--network=${DEFAULT_NETWORK}")
     fi
     if [[ "$inject_run_defaults" -eq 1 ]]; then
+      if [[ "$ADD_HOST_GATEWAY" == "1" && "$has_add_host_flag" -eq 0 ]]; then
+        args+=("--add-host=host.docker.internal:host-gateway")
+      fi
       args+=("--label=com.studio.managed=true" "--label=com.studio.parent=${PARENT_CONTAINER}")
-      if [[ -n "$CHILD_PROXY_URL" ]]; then
+      if [[ -n "$CHILD_ALL_PROXY_URL" || -n "$CHILD_HTTP_PROXY_URL" ]]; then
         args+=(
-          "--env=ALL_PROXY=${CHILD_PROXY_URL}"
-          "--env=all_proxy=${CHILD_PROXY_URL}"
-          "--env=HTTP_PROXY=${CHILD_PROXY_URL}"
-          "--env=http_proxy=${CHILD_PROXY_URL}"
-          "--env=HTTPS_PROXY=${CHILD_PROXY_URL}"
-          "--env=https_proxy=${CHILD_PROXY_URL}"
+          "--env=ALL_PROXY=${CHILD_ALL_PROXY_URL}"
+          "--env=all_proxy=${CHILD_ALL_PROXY_URL}"
+          "--env=HTTP_PROXY=${CHILD_HTTP_PROXY_URL}"
+          "--env=http_proxy=${CHILD_HTTP_PROXY_URL}"
+          "--env=HTTPS_PROXY=${CHILD_HTTP_PROXY_URL}"
+          "--env=https_proxy=${CHILD_HTTP_PROXY_URL}"
           "--env=NO_PROXY=${CHILD_NO_PROXY}"
           "--env=no_proxy=${CHILD_NO_PROXY}"
         )

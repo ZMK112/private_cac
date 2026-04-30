@@ -7,6 +7,7 @@ icon: "docker"
 Docker mode isolates the main Claude Code container with a separate network namespace, sing-box TUN transparent proxy, cac identity protection, and Claude Code pre-installed.
 
 If you enable child-container workflows from inside `cac`, that convenience comes from talking to the host Docker Engine through a sidecar proxy. The main `cac` container stays isolated; child containers do not automatically inherit the main container's leak-safe network path.
+This branch now adds a second sidecar for child-container egress: `proxy-bridge` terminates the upstream `PROXY_URI` and re-exposes it as standard authenticated HTTP/SOCKS proxy endpoints, so child containers can inherit proxy support even when the upstream protocol is a share link such as `ss://` or `vmess://`.
 
 ## Quick start
 
@@ -59,6 +60,8 @@ CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 
 `BUILD_PROXY` is optional and only affects image build-time downloads. Runtime TUN traffic is controlled by `PROXY_URI`, not `BUILD_PROXY`.
 
+If `cac docker create` or `cac docker rebuild` stalls on external downloads such as `claude.ai/install.sh`, first check plain host-network reachability. If the host itself cannot reach that download path directly, add a standard `http://...` or `socks5h://...` `BUILD_PROXY`.
+
 ## What happens inside the container
 
 On first boot, the entrypoint automatically:
@@ -83,6 +86,14 @@ The bootstrap identity always uses the Asia/Tokyo timezone and `ja_JP.UTF-8` loc
 
 `/root` and `/home` are bind-mounted to the Docker resource directory's `data/` folder on the host. Your Claude Code sessions, settings, and work files survive container restarts.
 
+Upgrades are preserve-by-default:
+
+- `cac docker rebuild`
+- reinstalling with `bash install.sh --local --yes`
+- recreating the container after an image update
+
+all keep the persisted Claude login state, credentials, memory, and session history as long as you keep the same `CAC_DATA` directory. A real wipe only happens if you manually delete that data directory yourself.
+
 `/workspace` is bind-mounted from the directory where you ran `cac docker start`. If Claude Code needs to start child containers with bind mounts, start Docker mode from the project root you want exposed inside `/workspace`.
 
 ## Runtime user
@@ -98,6 +109,13 @@ ssh -p 2222 cherny@<host-ip>
 ```
 
 If you want to keep SSH localhost-only, set `CAC_HOST_SSH_BIND=127.0.0.1` in `docker/.env` and restart the stack.
+
+If you want to lock both SSH and the Web UI back to localhost quickly, set:
+
+```env
+CAC_HOST_SSH_BIND=127.0.0.1
+CAC_HOST_WEB_BIND=127.0.0.1
+```
 
 Public-key auth is also left enabled for later use, but `cac` does not import any host SSH keys or mount the host `~/.ssh`. If you want key-based login later, add your own key manually inside the persisted container home, for example `/home/cherny/.ssh/authorized_keys`.
 

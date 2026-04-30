@@ -30,6 +30,40 @@ def render_json(proxy: ProxyConfig, **kwargs: Any) -> str:
     return json.dumps(render(proxy, **kwargs), indent=2)
 
 
+def render_proxy_bridge(
+    proxy: ProxyConfig,
+    *,
+    listen_address: str,
+    listen_port: int,
+    username: str,
+    password: str,
+) -> dict[str, Any]:
+    return {
+        "log": {"level": "warn"},
+        "inbounds": [
+            {
+                "type": "mixed",
+                "tag": "mixed-in",
+                "listen": listen_address,
+                "listen_port": listen_port,
+                "users": [{"username": username, "password": password}],
+            }
+        ],
+        "outbounds": [_outbound(proxy), {"type": "direct", "tag": "direct"}],
+        "route": {
+            "rules": [
+                {"ip_is_private": True, "outbound": "direct"},
+            ],
+            "final": "proxy",
+            "auto_detect_interface": True,
+        },
+    }
+
+
+def render_proxy_bridge_json(proxy: ProxyConfig, **kwargs: Any) -> str:
+    return json.dumps(render_proxy_bridge(proxy, **kwargs), indent=2)
+
+
 def _dns_section(server: str) -> dict:
     if server.startswith("https://"):
         parsed = urlparse(server)
@@ -130,6 +164,21 @@ def _outbound_shadowsocks(p: ProxyConfig) -> dict:
     }
 
 
+def _outbound_http(p: ProxyConfig) -> dict:
+    out: dict[str, Any] = {
+        "type": "http",
+        "tag": "proxy",
+        "server": p.server,
+        "server_port": p.port,
+    }
+    if p.username:
+        out["username"] = p.username
+    if p.password:
+        out["password"] = p.password
+    _apply_tls(out, p)
+    return out
+
+
 def _outbound_vmess(p: ProxyConfig) -> dict:
     out: dict[str, Any] = {
         "type": "vmess",
@@ -176,6 +225,7 @@ def _outbound_trojan(p: ProxyConfig) -> dict:
 
 _OUTBOUND_BUILDERS.update({
     "socks5": _outbound_socks5,
+    "http": _outbound_http,
     "shadowsocks": _outbound_shadowsocks,
     "vmess": _outbound_vmess,
     "vless": _outbound_vless,

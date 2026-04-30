@@ -13,7 +13,7 @@ VERSIONS_DIR="$CAC_DIR/versions"
 # shellcheck disable=SC2034  # used in build-concatenated cac script
 CAC_VERSION="1.4.0"
 CAC_DOCKER_IMAGE_REPO="${CAC_DOCKER_IMAGE_REPO:-ghcr.io/nmhjklnm/cac-docker}"
-CAC_DOCKER_IMAGE_TAG="${CAC_DOCKER_IMAGE_TAG:-v1.4.4-zmk.13-web.1}"
+CAC_DOCKER_IMAGE_TAG="${CAC_DOCKER_IMAGE_TAG:-v1.4.4-zmk.13-web.3}"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }
@@ -2906,8 +2906,8 @@ cmd_self() {
     esac
 }
 
-# ━━━ cmd_docker.sh ━━━
-# ── cac docker — 容器化部署管理 ─────────────────────────────────────
+# ━━━ cmd_docker_common.sh ━━━
+# ── cac docker — common defs and helper functions ───────────────────
 
 _info()  { printf '\033[36m▸\033[0m %b\n' "$*"; }
 _ok()    { printf '\033[32m✓\033[0m %b\n' "$*"; }
@@ -2993,6 +2993,139 @@ _dk_next_free_host_port() {
   return 1
 }
 
+_dk_random_secret() {
+  python3 - <<'PY'
+import secrets
+print(secrets.token_urlsafe(18))
+PY
+}
+
+_dk_child_proxy_bridge_host() {
+  printf '%s\n' "host.docker.internal"
+}
+
+_dk_child_proxy_bridge_http_url() {
+  local user="$1" password="$2" port="$3" host
+  host="$(_dk_child_proxy_bridge_host)"
+  printf 'http://%s:%s@%s:%s\n' "$user" "$password" "$host" "$port"
+}
+
+_dk_child_proxy_bridge_all_url() {
+  local user="$1" password="$2" port="$3" host
+  host="$(_dk_child_proxy_bridge_host)"
+  printf 'socks5h://%s:%s@%s:%s\n' "$user" "$password" "$host" "$port"
+}
+
+_dk_data_dir_raw() {
+  local raw
+  raw="${CAC_DATA:-$(_dk_read_env CAC_DATA)}"
+  printf '%s\n' "${raw:-./data}"
+}
+
+_dk_data_dir_abs() {
+  local raw="${1:-$(_dk_data_dir_raw)}" docker_dir
+  docker_dir="$(_docker_dir)"
+  python3 - "$docker_dir" "$raw" <<'PY'
+import os
+import sys
+
+base = sys.argv[1]
+raw = sys.argv[2]
+if os.path.isabs(raw):
+    print(os.path.realpath(raw))
+else:
+    print(os.path.realpath(os.path.join(base, raw)))
+PY
+}
+
+_dk_runtime_user_name() {
+  local user
+  user="${CAC_FAKE_USER:-$(_dk_read_env CAC_FAKE_USER)}"
+  printf '%s\n' "${user:-cherny}"
+}
+
+_dk_claude_state_detected() {
+  local data_dir="${1:-$(_dk_data_dir_abs)}" runtime_user="${2:-$(_dk_runtime_user_name)}"
+  [[ -d "${data_dir}/home/${runtime_user}/.cac" ]] && return 0
+  [[ -d "${data_dir}/home/${runtime_user}/.claude" ]] && return 0
+  [[ -f "${data_dir}/home/${runtime_user}/.claude.json" ]] && return 0
+  [[ -d "${data_dir}/root/.cac" ]] && return 0
+  [[ -d "${data_dir}/root/.claude" ]] && return 0
+  [[ -f "${data_dir}/root/.claude.json" ]] && return 0
+  return 1
+}
+
+_dk_claude_state_summary() {
+  local data_dir="${1:-$(_dk_data_dir_abs)}" runtime_user="${2:-$(_dk_runtime_user_name)}"
+  if _dk_claude_state_detected "$data_dir" "$runtime_user"; then
+    printf '%s\n' "detected — rebuild/recreate preserves Claude login, credentials, memory, and session history under ${data_dir}"
+  else
+    printf '%s\n' "not detected yet — future Claude login/session data will be stored under ${data_dir}"
+  fi
+}
+
+_dk_control_ip_from_subnet() {
+  local subnet="$1" host_offset="$2"
+  python3 - "$subnet" "$host_offset" <<'PY'
+import ipaddress, sys
+
+network = ipaddress.ip_network(sys.argv[1], strict=False)
+host_offset = int(sys.argv[2])
+print(str(network.network_address + host_offset))
+PY
+}
+
+_dk_prepare_child_proxy_bridge_env() {
+  local container_name bridge_name bridge_bind bridge_port bridge_user bridge_password bridge_ip control_subnet
+  local all_proxy_url http_proxy_url changed=0
+
+  container_name="${CAC_CONTAINER_NAME:-$(_dk_read_env CAC_CONTAINER_NAME)}"
+  container_name="${container_name:-boris-main}"
+  control_subnet="${CAC_DOCKER_CONTROL_SUBNET:-$(_dk_read_env CAC_DOCKER_CONTROL_SUBNET)}"
+  control_subnet="${control_subnet:-172.31.255.0/24}"
+  bridge_name="${CAC_CHILD_PROXY_BRIDGE_NAME:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_NAME)}"
+  bridge_name="${bridge_name:-${container_name}-child-proxy}"
+  bridge_ip="${CAC_CHILD_PROXY_BRIDGE_IP:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_IP)}"
+  bridge_ip="${bridge_ip:-$(_dk_control_ip_from_subnet "$control_subnet" 4)}"
+  bridge_bind="${CAC_CHILD_PROXY_BRIDGE_BIND:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_BIND)}"
+  bridge_bind="${bridge_bind:-0.0.0.0}"
+  bridge_port="${CAC_CHILD_PROXY_BRIDGE_PORT:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_PORT)}"
+  bridge_port="${bridge_port:-17891}"
+  bridge_user="${CAC_CHILD_PROXY_BRIDGE_USER:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_USER)}"
+  bridge_user="${bridge_user:-cacbridge}"
+  bridge_password="${CAC_CHILD_PROXY_BRIDGE_PASSWORD:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_PASSWORD)}"
+  if [[ -z "$bridge_password" ]]; then
+    bridge_password="$(_dk_random_secret)"
+    changed=1
+  fi
+
+  all_proxy_url="$(_dk_child_proxy_bridge_all_url "$bridge_user" "$bridge_password" "$bridge_port")"
+  http_proxy_url="$(_dk_child_proxy_bridge_http_url "$bridge_user" "$bridge_password" "$bridge_port")"
+
+  for kv in \
+    "CAC_CHILD_PROXY_BRIDGE_NAME=$bridge_name" \
+    "CAC_CHILD_PROXY_BRIDGE_IP=$bridge_ip" \
+    "CAC_CHILD_PROXY_BRIDGE_BIND=$bridge_bind" \
+    "CAC_CHILD_PROXY_BRIDGE_PORT=$bridge_port" \
+    "CAC_CHILD_PROXY_BRIDGE_USER=$bridge_user" \
+    "CAC_CHILD_PROXY_BRIDGE_PASSWORD=$bridge_password" \
+    "CAC_CHILD_CONTAINER_PROXY_URL=$all_proxy_url" \
+    "CAC_CHILD_CONTAINER_ALL_PROXY_URL=$all_proxy_url" \
+    "CAC_CHILD_CONTAINER_HTTP_PROXY_URL=$http_proxy_url" \
+    "CAC_CHILD_CONTAINER_ADD_HOST_GATEWAY=1"
+  do
+    local key="${kv%%=*}" value="${kv#*=}"
+    if [[ "$(_dk_read_env "$key")" != "$value" ]]; then
+      _dk_write_env "$key" "$value"
+      changed=1
+    fi
+  done
+
+  if [[ "$changed" -eq 1 ]]; then
+    _dk_load_env
+  fi
+}
+
 _dk_prepare_host_ports() {
   local current_state="${1:-}"
 
@@ -3000,7 +3133,7 @@ _dk_prepare_host_ports() {
     return 0
   fi
 
-  local ssh_enabled ssh_bind ssh_port web_enabled web_bind web_port next_port changed=0
+  local ssh_enabled ssh_bind ssh_port web_enabled web_bind web_port bridge_bind bridge_port next_port changed=0
   ssh_enabled="${CAC_ENABLE_SSH:-$(_dk_read_env CAC_ENABLE_SSH)}"
   ssh_enabled="${ssh_enabled:-1}"
   ssh_bind="${CAC_HOST_SSH_BIND:-$(_dk_read_env CAC_HOST_SSH_BIND)}"
@@ -3014,6 +3147,10 @@ _dk_prepare_host_ports() {
   web_bind="${web_bind:-0.0.0.0}"
   web_port="${CAC_HOST_WEB_PORT:-$(_dk_read_env CAC_HOST_WEB_PORT)}"
   web_port="${web_port:-3001}"
+  bridge_bind="${CAC_CHILD_PROXY_BRIDGE_BIND:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_BIND)}"
+  bridge_bind="${bridge_bind:-0.0.0.0}"
+  bridge_port="${CAC_CHILD_PROXY_BRIDGE_PORT:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_PORT)}"
+  bridge_port="${bridge_port:-17891}"
 
   if [[ "$ssh_enabled" != "0" ]] && [[ "$(_dk_host_port_available "$ssh_bind" "$ssh_port")" != "1" ]]; then
     next_port="$(_dk_next_free_host_port "$ssh_bind" "$ssh_port")" || {
@@ -3034,6 +3171,17 @@ _dk_prepare_host_ports() {
     _warn "Web UI port ${web_bind}:${web_port} is occupied, switching to ${next_port}"
     _dk_write_env CAC_HOST_WEB_PORT "$next_port"
     web_port="$next_port"
+    changed=1
+  fi
+
+  if [[ "$(_dk_host_port_available "$bridge_bind" "$bridge_port")" != "1" ]]; then
+    next_port="$(_dk_next_free_host_port "$bridge_bind" "$bridge_port" "$ssh_port" "$web_port")" || {
+      _err "No free child proxy bridge port found starting from ${bridge_port}"
+      return 1
+    }
+    _warn "Child proxy bridge port ${bridge_bind}:${bridge_port} is occupied, switching to ${next_port}"
+    _dk_write_env CAC_CHILD_PROXY_BRIDGE_PORT "$next_port"
+    bridge_port="$next_port"
     changed=1
   fi
 
@@ -3081,6 +3229,11 @@ _dk_is_localhost_bind() {
   esac
 }
 
+_dk_print_local_only_snippet() {
+  printf '  CAC_HOST_WEB_BIND=127.0.0.1\n'
+  printf '  CAC_HOST_SSH_BIND=127.0.0.1\n'
+}
+
 _dk_warn_web_exposure() {
   local web_enabled web_bind ssh_enabled ssh_bind ssh_password
   web_enabled="${CAC_ENABLE_WEB:-$(_dk_read_env CAC_ENABLE_WEB)}"
@@ -3096,90 +3249,31 @@ _dk_warn_web_exposure() {
 
   if [[ "$web_enabled" != "0" ]] && ! _dk_is_localhost_bind "$web_bind"; then
     _warn "Web UI is LAN-reachable and Docker Web mode bypasses the CloudCLI login screen."
-    _warn "Use only on trusted networks, or set CAC_HOST_WEB_BIND=127.0.0.1 or CAC_ENABLE_WEB=0."
+    _warn "Use only on trusted networks, or lock it down with:"
+    _dk_print_local_only_snippet
+    printf '  # or disable it entirely\n'
+    printf '  CAC_ENABLE_WEB=0\n'
   fi
 
   if [[ "$ssh_enabled" != "0" ]] && ! _dk_is_localhost_bind "$ssh_bind" && [[ "$ssh_password" == "cherny" ]]; then
-    _warn "SSH is also LAN-reachable with the default password. Change CAC_SSH_PASSWORD or set CAC_HOST_SSH_BIND=127.0.0.1."
+    _warn "SSH is also LAN-reachable with the default password."
+    _warn "At minimum, change CAC_SSH_PASSWORD or lock SSH down with:"
+    printf '  CAC_HOST_SSH_BIND=127.0.0.1\n'
   fi
-}
-
-_dk_proxy_url_parts() {
-  local proxy_url="${1:-}"
-  [[ -n "$proxy_url" ]] || return 1
-  python3 - "$proxy_url" <<'PY'
-from urllib.parse import urlsplit
-import sys
-
-raw = sys.argv[1].strip()
-try:
-    parsed = urlsplit(raw)
-except Exception:
-    raise SystemExit(1)
-
-if not parsed.scheme or not parsed.hostname or parsed.port is None:
-    raise SystemExit(1)
-
-print(f"{parsed.scheme}|{parsed.hostname}|{parsed.port}|{parsed.username or ''}|{parsed.password or ''}")
-PY
-}
-
-_dk_normalize_child_proxy_host_for_compare() {
-  local mode="$1" host="${2:-}"
-  if [[ "$mode" == "local" ]] && [[ "$host" == "127.0.0.1" || "$host" == "localhost" ]]; then
-    printf '%s\n' "host.docker.internal"
-    return 0
-  fi
-  printf '%s\n' "$host"
-}
-
-_dk_should_migrate_child_proxy() {
-  local mode="$1" current="$2" expected="$3"
-  [[ -n "$expected" ]] || return 1
-  [[ -z "$current" ]] && return 0
-  [[ "$current" == "$expected" ]] && return 1
-
-  local current_parts expected_parts
-  current_parts="$(_dk_proxy_url_parts "$current" 2>/dev/null || true)"
-  expected_parts="$(_dk_proxy_url_parts "$expected" 2>/dev/null || true)"
-  [[ -n "$current_parts" && -n "$expected_parts" ]] || return 1
-
-  local current_scheme current_host current_port current_user current_pass
-  local expected_scheme expected_host expected_port expected_user expected_pass
-  IFS='|' read -r current_scheme current_host current_port current_user current_pass <<<"$current_parts"
-  IFS='|' read -r expected_scheme expected_host expected_port expected_user expected_pass <<<"$expected_parts"
-
-  current_host="$(_dk_normalize_child_proxy_host_for_compare "$mode" "$current_host")"
-  expected_host="$(_dk_normalize_child_proxy_host_for_compare "$mode" "$expected_host")"
-
-  if [[ "$current_scheme" == "$expected_scheme" ]] && [[ "$current_host" == "$expected_host" ]] && [[ "$current_port" == "$expected_port" ]]; then
-    if [[ -n "$expected_user" ]] && [[ -z "$current_user$current_pass" ]]; then
-      return 0
-    fi
-    if [[ -z "$expected_user$expected_pass" ]] && [[ -z "$current_user$current_pass" ]]; then
-      return 0
-    fi
-  fi
-
-  return 1
 }
 
 _dk_maybe_migrate_child_proxy() {
-  local mode proxy expected current
-  mode="$(_dk_get_mode)"
-  proxy="${CAC_PROXY_URI:-$(_dk_read_env PROXY_URI)}"
-  expected="$(_dk_guess_child_proxy_url "$mode" "$proxy")"
-  [[ -n "$expected" ]] || return 0
-  current="${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}"
-
-  if _dk_should_migrate_child_proxy "$mode" "$current" "$expected"; then
-    if [[ -n "$current" ]]; then
-      _warn "Refreshing stale child proxy setting from PROXY_URI."
-    fi
-    _dk_write_env CAC_CHILD_CONTAINER_PROXY_URL "$expected"
-    _dk_load_env
+  local before after
+  before="$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)"
+  _dk_prepare_child_proxy_bridge_env
+  after="$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)"
+  if [[ -n "$before" && "$before" != "$after" ]]; then
+    _warn "Refreshing child proxy settings to use the local proxy-bridge."
   fi
 }
+
+# ━━━ cmd_docker_runtime.sh ━━━
+# ── cac docker — runtime/build/env helpers ──────────────────────────
 
 _dk_host_docker() {
   env -u DOCKER_HOST -u DOCKER_CONTEXT docker "$@"
@@ -3333,16 +3427,81 @@ _dk_should_build_local() {
   _dk_can_build_local && _dk_wants_local_build
 }
 
+_dk_guess_build_proxy_url() {
+  local mode="$1" raw="$2" scheme="" rest="" auth="" host="" port="" compact_user="" compact_pass=""
+  [[ -n "$raw" ]] || return 0
+  raw="$(_dk_canonicalize_proxy_uri "$raw" 2>/dev/null || printf '%s\n' "$raw")"
+
+  case "$raw" in
+    *://*)
+      case "$raw" in
+        socks5://*|socks5h://*|http://*|https://*)
+          printf '%s\n' "$(_dk_normalize_proxy_uri "$mode" "$raw")"
+          return 0
+          ;;
+        *)
+          return 0
+          ;;
+      esac
+      ;;
+    *)
+      IFS=: read -r host port compact_user compact_pass <<<"$raw"
+      [[ -n "$host" && -n "$port" ]] || return 0
+      auth=""
+      if [[ -n "$compact_user" ]]; then
+        auth="${compact_user}:${compact_pass}@"
+      fi
+      if [[ "$mode" == "local" && ( "$host" == "127.0.0.1" || "$host" == "localhost" ) ]]; then
+        host="host.docker.internal"
+      fi
+      printf 'socks5h://%s%s:%s\n' "$auth" "$host" "$port"
+      return 0
+      ;;
+  esac
+}
+
+_dk_build_proxy_hint() {
+  local mode="$1" proxy_uri="$2" suggestion=""
+  suggestion="$(_dk_guess_build_proxy_url "$mode" "$proxy_uri")"
+
+  _warn "Docker image builds use the host/build network by default."
+  _warn "Runtime \033[1mPROXY_URI\033[0m only affects the protected container after it starts; it does not automatically proxy image-build downloads."
+  _warn "If the build failed while downloading external assets such as \033[1mclaude.ai/install.sh\033[0m, set \033[1mBUILD_PROXY\033[0m in \033[1m$_dk_env_file\033[0m and retry."
+
+  if [[ -n "$suggestion" ]]; then
+    _info "Suggested setting:"
+    printf '  BUILD_PROXY=%s\n' "$suggestion"
+  else
+    _info "Suggested setting:"
+    printf '  BUILD_PROXY=socks5h://host.docker.internal:7890\n'
+    _info "Use a standard HTTP/SOCKS proxy URL for BUILD_PROXY. Share links such as \033[1mss://\033[0m or \033[1mvmess://\033[0m cannot be passed to curl directly."
+  fi
+
+  _info "Then retry with: \033[1mcac docker create\033[0m"
+}
+
 _dk_build_runtime_image_locally() {
+  local mode proxy_uri
+  mode="$(_dk_get_mode)"
+  proxy_uri="${PROXY_URI:-$(_dk_read_env PROXY_URI)}"
   if _dk_force_local_rebuild; then
     _info "Rebuilding local images..."
-    _dk_compose build
+    if ! _dk_compose build; then
+      _dk_build_proxy_hint "$mode" "$proxy_uri"
+      return 1
+    fi
   elif _dk_host_docker image inspect "$_dk_image" >/dev/null 2>&1; then
     _info "Local image already present, refreshing docker-proxy..."
-    _dk_compose build docker-proxy
+    if ! _dk_compose build docker-proxy; then
+      _dk_build_proxy_hint "$mode" "$proxy_uri"
+      return 1
+    fi
   else
     _info "Building local images..."
-    _dk_compose build
+    if ! _dk_compose build; then
+      _dk_build_proxy_hint "$mode" "$proxy_uri"
+      return 1
+    fi
   fi
 }
 
@@ -3434,6 +3593,152 @@ _dk_prompt_value() {
   done
 }
 
+_dk_prompt_yes_no() {
+  local label="$1" default="${2:-N}" input=""
+  while true; do
+    read -r -p "  ${label} [${default}]: " input
+    input="${input:-$default}"
+    case "$input" in
+      y|Y|yes|YES) return 0 ;;
+      n|N|no|NO) return 1 ;;
+      *)
+        _warn "Please answer y or n"
+        ;;
+    esac
+  done
+}
+
+_dk_proxy_parse_tsv() {
+  local uri="$1" docker_dir
+  docker_dir="$(_docker_dir)"
+  python3 - "$docker_dir" "$uri" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from lib.protocols import parse
+
+proxy = parse(sys.argv[2])
+print("\t".join([
+    proxy.type,
+    proxy.server,
+    str(proxy.port),
+    proxy.username,
+    proxy.password,
+]))
+PY
+}
+
+_dk_canonicalize_proxy_uri() {
+  local raw="$1" docker_dir
+  case "$raw" in
+    socks://*)
+      docker_dir="$(_docker_dir)"
+      python3 - "$docker_dir" "$raw" <<'PY'
+import sys
+
+sys.path.insert(0, sys.argv[1])
+from lib.protocols import parse
+
+proxy = parse(sys.argv[2])
+auth = ""
+if proxy.username:
+    auth = proxy.username
+    if proxy.password:
+        auth += f":{proxy.password}"
+    auth += "@"
+print(f"socks5://{auth}{proxy.server}:{proxy.port}")
+PY
+      return 0
+      ;;
+  esac
+
+  printf '%s\n' "$raw"
+}
+
+_dk_proxy_uri_for_host_probe() {
+  local mode="$1" raw="$2" probe_uri=""
+  probe_uri="$(_dk_canonicalize_proxy_uri "$raw")" || return 1
+  if [[ "$mode" == "local" ]]; then
+    probe_uri="${probe_uri//host.docker.internal/127.0.0.1}"
+  fi
+  if [[ "$probe_uri" != *"://"* ]]; then
+    probe_uri="socks5h://${probe_uri}"
+  fi
+  printf '%s\n' "$probe_uri"
+}
+
+_dk_tcp_probe() {
+  local host="$1" port="$2"
+  python3 - "$host" "$port" <<'PY'
+import socket
+import sys
+
+try:
+    with socket.create_connection((sys.argv[1], int(sys.argv[2])), timeout=5):
+        pass
+except OSError:
+    raise SystemExit(1)
+PY
+}
+
+_dk_proxy_http_probe() {
+  local proxy_url="$1" url
+  for url in \
+    "https://api.ipify.org" \
+    "https://www.google.com/generate_204"
+  do
+    if curl --proxy "$proxy_url" --connect-timeout 8 --max-time 15 -fsS -o /dev/null "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+_dk_probe_proxy_uri() {
+  local raw="$1" mode="$2" probe_uri="" info="" proxy_type="" server="" port="" _user="" _pass=""
+  probe_uri="$(_dk_proxy_uri_for_host_probe "$mode" "$raw")" || {
+    _warn "Proxy probe failed: could not normalize the proxy URI"
+    return 1
+  }
+
+  info="$(_dk_proxy_parse_tsv "$probe_uri" 2>/dev/null)" || {
+    _warn "Proxy probe failed: unsupported or invalid proxy format"
+    return 1
+  }
+  IFS=$'\t' read -r proxy_type server port _user _pass <<<"$info"
+  if [[ -z "$proxy_type" || -z "$server" || -z "$port" ]]; then
+    _warn "Proxy probe failed: incomplete proxy endpoint information"
+    return 1
+  fi
+
+  if ! _dk_tcp_probe "$server" "$port"; then
+    _warn "Proxy probe failed: cannot reach \033[1m${server}:${port}\033[0m from the host"
+    return 1
+  fi
+
+  case "$proxy_type" in
+    http|socks5)
+      if _dk_proxy_http_probe "$probe_uri"; then
+        _ok "Proxy probe passed: outbound requests succeed through \033[1m${server}:${port}\033[0m"
+      else
+        _warn "Proxy endpoint \033[1m${server}:${port}\033[0m is reachable, but outbound verification through it failed"
+        _info "Fix or verify the proxy first, then rerun \033[1mcac docker setup\033[0m or validate with \033[1mcac docker check\033[0m after a manual restart"
+        return 1
+      fi
+      return 0
+      ;;
+    shadowsocks|vmess|vless|trojan)
+      _ok "Proxy probe reached the upstream endpoint: \033[1m${server}:${port}\033[0m"
+      _info "Share-link probe is basic reachability only; run \033[1mcac docker check\033[0m after restart for end-to-end validation"
+      return 0
+      ;;
+    *)
+      _warn "Proxy probe failed: unsupported parsed proxy type \033[1m${proxy_type}\033[0m"
+      return 1
+      ;;
+  esac
+}
+
 _dk_guess_child_proxy_url() {
   local mode="$1" raw="$2" host="" port="" scheme="" rest="" tail="" auth="" compact_user="" compact_pass=""
   [[ -z "$raw" ]] && return 0
@@ -3475,6 +3780,7 @@ _dk_guess_child_proxy_url() {
 
 _dk_normalize_proxy_uri() {
   local mode="$1" raw="$2" scheme="" rest="" auth="" target=""
+  raw="$(_dk_canonicalize_proxy_uri "$raw" 2>/dev/null || printf '%s\n' "$raw")"
   [[ "$mode" == "local" ]] || { printf '%s\n' "$raw"; return 0; }
   [[ -n "$raw" ]] || return 0
 
@@ -3505,12 +3811,7 @@ _dk_normalize_proxy_uri() {
 }
 
 _dk_default_child_no_proxy() {
-  local mode="$1"
-  if [[ "$mode" == "local" ]]; then
-    printf '%s\n' "localhost,127.0.0.1,::1,host.docker.internal"
-  else
-    printf '%s\n' "localhost,127.0.0.1,::1"
-  fi
+  printf '%s\n' "localhost,127.0.0.1,::1,host.docker.internal"
 }
 
 _dk_detect_mode() {
@@ -3665,7 +3966,8 @@ _dk_shim_down() {
   ip link show "$_dk_shim_if" &>/dev/null && ip link del "$_dk_shim_if" 2>/dev/null || true
 }
 
-# ── Port forwarding ──────────────────────────────────────────────────
+# ━━━ cmd_docker_ports.sh ━━━
+# ── cac docker — port forwarding helpers ────────────────────────────
 
 _dk_port_forward() {
   local port="$1" mode
@@ -3850,21 +4152,38 @@ _dk_port_stop_all() {
   done
 }
 
+# ━━━ cmd_docker.sh ━━━
+# ── cac docker — runtime, subcommands, and dispatcher ───────────────
+
 _dk_run_cac_check() {
   local out="/tmp/cac-docker-check.out"
   local rc="/tmp/cac-docker-check.rc"
-  local status=""
+  local status="" printed_lines=0 line_count=""
 
   _dk_compose exec -T "$_dk_service" sh -lc "rm -f '$out' '$rc'; (cac-check >'$out' 2>&1; printf '%s' \$? >'$rc') &" >/dev/null
 
   local i
   for i in $(seq 1 60); do
+    line_count="$(
+      _dk_compose exec -T "$_dk_service" sh -lc "test -f '$out' && wc -l < '$out'" 2>/dev/null |
+        tr -d '\r\n'
+    )"
+    if [[ "$line_count" =~ ^[0-9]+$ ]] && (( line_count > printed_lines )); then
+      _dk_compose exec -T "$_dk_service" sh -lc "sed -n '$((printed_lines + 1)),${line_count}p' '$out'" 2>/dev/null || true
+      printed_lines=$line_count
+    fi
     status=$(_dk_compose exec -T "$_dk_service" sh -lc "test -f '$rc' && cat '$rc'" 2>/dev/null || true)
     [[ -n "$status" ]] && break
     sleep 1
   done
 
-  _dk_compose exec -T "$_dk_service" sh -lc "test -f '$out' && cat '$out'" 2>/dev/null || true
+  line_count="$(
+    _dk_compose exec -T "$_dk_service" sh -lc "test -f '$out' && wc -l < '$out'" 2>/dev/null |
+      tr -d '\r\n'
+  )"
+  if [[ "$line_count" =~ ^[0-9]+$ ]] && (( line_count > printed_lines )); then
+    _dk_compose exec -T "$_dk_service" sh -lc "sed -n '$((printed_lines + 1)),${line_count}p' '$out'" 2>/dev/null || true
+  fi
   [[ -n "$status" ]] || { _err "cac-check did not finish"; return 1; }
   [[ "$status" == "0" ]]
 }
@@ -3877,13 +4196,16 @@ _dk_cmd_setup() {
   printf "\033[1mcac docker setup\033[0m\n"
   echo ""
 
-  local proxy mode detected_mode docker_dir data_dir container_name runtime_hostname gateway_name child_proxy child_no_proxy derived_child_proxy image_ref ssh_enabled ssh_port ssh_password web_enabled web_port web_bind
-  proxy=$(_dk_prompt_value "Proxy URI (SOCKS5 compact host:port or explicit http:// / socks5h://)" "$(_dk_read_env PROXY_URI)" 1) || return 1
+  local proxy mode detected_mode docker_dir data_dir prior_data_dir data_dir_abs prior_data_dir_abs data_state_summary container_name runtime_hostname gateway_name child_proxy child_no_proxy image_ref ssh_enabled ssh_port ssh_password web_enabled web_port web_bind current_state prior_proxy proxy_changed=0 proxy_probe_ok=0 running_workspace new_workspace preferred_shell shell_choice shell_changed=0 data_dir_changed=0 restart_reason="saved settings" control_subnet proxy_ip client_ip bridge_ip
+  prior_proxy="$(_dk_read_env PROXY_URI)"
+  current_state="$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")"
+  proxy=$(_dk_prompt_value "Proxy URI (host:port, http:// / socks5h://, or share links socks:// / ss:// / vmess:// / vless:// / trojan://)" "$prior_proxy" 1) || return 1
 
   detected_mode=$(_dk_detect_mode)
   mode="$detected_mode"
   proxy="$(_dk_normalize_proxy_uri "$mode" "$proxy")"
-  if [[ "$proxy" != "$(_dk_read_env PROXY_URI)" ]]; then
+  if [[ "$proxy" != "$prior_proxy" ]]; then
+    proxy_changed=1
     case "$proxy" in
       host.docker.internal:*|*://*host.docker.internal:*)
         _info "Local Docker mode detected, using \033[1m${proxy}\033[0m for host-side proxy access"
@@ -3914,8 +4236,34 @@ _dk_cmd_setup() {
   fi
 
   echo ""
-  data_dir="${CAC_DATA:-$(_dk_read_env CAC_DATA)}"
+  prior_data_dir="$(_dk_read_env CAC_DATA)"
+  prior_data_dir="${prior_data_dir:-./data}"
+  data_dir="${CAC_DATA:-$prior_data_dir}"
   data_dir="${data_dir:-./data}"
+  prior_data_dir_abs="$(_dk_data_dir_abs "$prior_data_dir")"
+  data_dir_abs="$(_dk_data_dir_abs "$data_dir")"
+  if [[ "$data_dir_abs" != "$prior_data_dir_abs" ]]; then
+    data_dir_changed=1
+    echo ""
+    _warn "Changing \033[1mCAC_DATA\033[0m switches the persisted Claude state location."
+    _info "Current data path: \033[1m${prior_data_dir_abs}\033[0m"
+    _info "Requested data path: \033[1m${data_dir_abs}\033[0m"
+    if _dk_claude_state_detected "$prior_data_dir_abs"; then
+      _warn "Existing Claude login/session data was detected in the current data directory."
+    else
+      _info "No Claude state was detected in the current data directory."
+    fi
+    if _dk_claude_state_detected "$data_dir_abs"; then
+      _warn "Claude state was also detected in the requested data directory."
+    else
+      _info "No Claude state was detected in the requested data directory yet."
+    fi
+    if ! _dk_prompt_yes_no "Switch Docker data storage to the new directory?" "N"; then
+      _warn "Aborted to avoid switching Claude state directories implicitly."
+      return 1
+    fi
+  fi
+  data_state_summary="$(_dk_claude_state_summary "$data_dir_abs")"
   container_name="${CAC_CONTAINER_NAME:-$(_dk_read_env CAC_CONTAINER_NAME)}"
   container_name="${container_name:-boris-main}"
   runtime_hostname="${CAC_CONTAINER_RUNTIME_HOSTNAME:-$(_dk_read_env CAC_CONTAINER_RUNTIME_HOSTNAME)}"
@@ -3934,6 +4282,21 @@ _dk_cmd_setup() {
   web_bind="${web_bind:-0.0.0.0}"
   ssh_password="${CAC_SSH_PASSWORD:-$(_dk_read_env CAC_SSH_PASSWORD)}"
   ssh_password="${ssh_password:-cherny}"
+  preferred_shell="${CAC_FAKE_SHELL:-$(_dk_read_env CAC_FAKE_SHELL)}"
+  preferred_shell="${preferred_shell:-/bin/bash}"
+  shell_choice="$(_dk_prompt_value "Default interactive shell (bash or zsh)" "${preferred_shell##*/}" 1)" || return 1
+  case "$shell_choice" in
+    bash|zsh)
+      preferred_shell="/bin/${shell_choice}"
+      ;;
+    *)
+      _err "Unsupported shell choice: ${shell_choice}"
+      return 1
+      ;;
+  esac
+  if [[ "$preferred_shell" != "$(_dk_read_env CAC_FAKE_SHELL)" ]]; then
+    shell_changed=1
+  fi
   image_ref="${CAC_DOCKER_IMAGE:-$(_dk_read_env CAC_DOCKER_IMAGE)}"
   if [[ -z "$image_ref" ]]; then
     image_ref="$(_dk_default_image_ref)"
@@ -3945,8 +4308,17 @@ _dk_cmd_setup() {
     _warn "Replacing mutable Docker image ref '$image_ref' with pinned default '$(_dk_default_image_ref)'"
     image_ref="$(_dk_default_image_ref)"
   fi
-  derived_child_proxy="$(_dk_guess_child_proxy_url "$mode" "$proxy")"
-  child_proxy="${derived_child_proxy:-${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}}"
+  _dk_prepare_child_proxy_bridge_env
+  _dk_load_env
+  control_subnet="${CAC_DOCKER_CONTROL_SUBNET:-$(_dk_read_env CAC_DOCKER_CONTROL_SUBNET)}"
+  control_subnet="${control_subnet:-172.31.255.0/24}"
+  proxy_ip="${CAC_DOCKER_PROXY_IP:-$(_dk_read_env CAC_DOCKER_PROXY_IP)}"
+  proxy_ip="${proxy_ip:-$(_dk_control_ip_from_subnet "$control_subnet" 2)}"
+  client_ip="${CAC_DOCKER_CLIENT_IP:-$(_dk_read_env CAC_DOCKER_CLIENT_IP)}"
+  client_ip="${client_ip:-$(_dk_control_ip_from_subnet "$control_subnet" 3)}"
+  bridge_ip="${CAC_CHILD_PROXY_BRIDGE_IP:-$(_dk_read_env CAC_CHILD_PROXY_BRIDGE_IP)}"
+  bridge_ip="${bridge_ip:-$(_dk_control_ip_from_subnet "$control_subnet" 4)}"
+  child_proxy="${CAC_CHILD_CONTAINER_PROXY_URL:-$(_dk_read_env CAC_CHILD_CONTAINER_PROXY_URL)}"
   child_no_proxy="${CAC_CHILD_CONTAINER_NO_PROXY:-$(_dk_read_env CAC_CHILD_CONTAINER_NO_PROXY)}"
   child_no_proxy="${child_no_proxy:-$(_dk_default_child_no_proxy "$mode")}"
 
@@ -3964,15 +4336,17 @@ _dk_cmd_setup() {
   _dk_write_env CAC_DOCKER_BUILD_LOCAL "${CAC_DOCKER_BUILD_LOCAL:-0}"
   _dk_write_env CAC_CHILD_CONTAINER_NETWORK_MODE "bridge"
   _dk_write_env CAC_DOCKER_PROXY_NAME "$gateway_name"
-  _dk_write_env CAC_DOCKER_PROXY_IP "172.31.255.2"
-  _dk_write_env CAC_DOCKER_CLIENT_IP "172.31.255.3"
-  _dk_write_env CAC_DOCKER_CONTROL_SUBNET "172.31.255.0/24"
+  _dk_write_env CAC_DOCKER_PROXY_IP "$proxy_ip"
+  _dk_write_env CAC_DOCKER_CLIENT_IP "$client_ip"
+  _dk_write_env CAC_CHILD_PROXY_BRIDGE_IP "$bridge_ip"
+  _dk_write_env CAC_DOCKER_CONTROL_SUBNET "$control_subnet"
   _dk_write_env CAC_CONTAINER_DOCKER_HOST "tcp://${gateway_name}:2375"
   _dk_write_env CAC_CHILD_CONTAINER_PROXY_URL "$child_proxy"
   _dk_write_env CAC_CHILD_CONTAINER_NO_PROXY "$child_no_proxy"
   _dk_write_env CAC_ENABLE_SSH "$ssh_enabled"
   _dk_write_env CAC_HOST_SSH_PORT "$ssh_port"
   _dk_write_env CAC_SSH_PASSWORD "$ssh_password"
+  _dk_write_env CAC_FAKE_SHELL "$preferred_shell"
   if [[ -f "$_dk_env_file" ]]; then
     local cleanup_tmp
     cleanup_tmp=$(mktemp)
@@ -3984,6 +4358,8 @@ _dk_cmd_setup() {
   _info "Proxy: \033[1m${proxy}\033[0m"
   _info "Mode: \033[1m${mode}\033[0m"
   _info "Data dir: \033[1m${data_dir}\033[0m"
+  _info "Data dir abs: \033[1m${data_dir_abs}\033[0m"
+  _info "Claude state: \033[1m${data_state_summary}\033[0m"
   _info "Image: \033[1m${image_ref}\033[0m"
   if _dk_wants_local_build; then
     _info "Build mode: \033[1mlocal source build\033[0m"
@@ -3991,6 +4367,7 @@ _dk_cmd_setup() {
     _info "Build mode: \033[1mpinned image pull\033[0m"
   fi
   _info "Container: \033[1m${container_name}\033[0m (hostname: ${runtime_hostname})"
+  _info "Shell: \033[1m${preferred_shell}\033[0m"
   [[ -n "$child_proxy" ]] && _info "Child proxy: \033[1m$(_dk_mask_proxy_display "$child_proxy")\033[0m"
   if [[ "$ssh_enabled" != "0" ]]; then
     _info "SSH: \033[1mssh -p ${ssh_port} ${CAC_FAKE_USER:-cherny}@127.0.0.1\033[0m"
@@ -4001,12 +4378,60 @@ _dk_cmd_setup() {
   _info "Workspace mount: \033[1m$(_dk_workspace_host_abs)\033[0m → /workspace (current directory at start time)"
   _info "Container Docker API: \033[1mtcp://${gateway_name}:2375\033[0m (via docker-proxy sidecar)"
   _dk_warn_web_exposure
+  echo ""
+  if _dk_probe_proxy_uri "$proxy" "$mode"; then
+    proxy_probe_ok=1
+  else
+    _warn "The new proxy was saved, but the quick probe failed."
+    _info "The final runtime validation is still \033[1mcac docker check\033[0m."
+  fi
+
+  if [[ "$current_state" == "running" && ( "$proxy_changed" -eq 1 || "$shell_changed" -eq 1 || "$data_dir_changed" -eq 1 ) ]]; then
+    echo ""
+    running_workspace="$(_dk_workspace_host_current 2>/dev/null || true)"
+    new_workspace="$(_dk_workspace_host_abs)"
+    _warn "A Docker container is already running for this install."
+    [[ -n "$running_workspace" ]] && _info "Current running workspace: \033[1m${running_workspace}\033[0m"
+    _info "If you restart now from this shell, /workspace will mount: \033[1m${new_workspace}\033[0m"
+    if [[ "$proxy_changed" -eq 1 && "$proxy_probe_ok" -eq 0 ]]; then
+      _warn "Skipping automatic restart because the new proxy did not pass the quick check."
+      _info "Saved only. Fix or verify the proxy first, then restart manually."
+      return 0
+    fi
+
+    if [[ "$proxy_changed" -eq 1 && "$shell_changed" -eq 1 && "$data_dir_changed" -eq 1 ]]; then
+      restart_reason="saved proxy, shell, and data directory"
+    elif [[ "$proxy_changed" -eq 1 && "$data_dir_changed" -eq 1 ]]; then
+      restart_reason="saved proxy and data directory"
+    elif [[ "$shell_changed" -eq 1 && "$data_dir_changed" -eq 1 ]]; then
+      restart_reason="saved shell and data directory"
+    elif [[ "$proxy_changed" -eq 1 ]]; then
+      restart_reason="saved proxy"
+    elif [[ "$shell_changed" -eq 1 ]]; then
+      restart_reason="saved shell"
+    elif [[ "$data_dir_changed" -eq 1 ]]; then
+      restart_reason="saved data directory"
+    fi
+    if _dk_prompt_yes_no "Restart the running Docker container now to apply the ${restart_reason}?" "N"; then
+      _warn "Restarting now so the saved settings take effect..."
+      _dk_cmd_restart || return 1
+      echo ""
+      _info "Next: \033[1mcac docker check\033[0m"
+      return 0
+    fi
+
+    _info "Saved only. The running container keeps its current runtime state until you restart it manually."
+    return 0
+  fi
+
   _info "Next: \033[1mcac docker create\033[0m"
 }
 
 _dk_cmd_create() {
   _dk_init || return 1
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
+  _dk_load_env
+  _dk_prepare_child_proxy_bridge_env
   echo ""
   if _dk_should_build_local; then
     _dk_build_runtime_image_locally || return 1
@@ -4024,10 +4449,10 @@ _dk_cmd_start() {
   local ssh_enabled ssh_port web_port current_state
   [[ ! -f "$_dk_env_file" ]] && { _warn "No config found, running setup first..."; _dk_cmd_setup; }
   _dk_load_env
-  _dk_maybe_migrate_child_proxy
-  _dk_assert_docker_cli_compat || return 1
   current_state=$(_dk_compose ps --format '{{.State}}' "$_dk_service" 2>/dev/null || echo "not created")
   _dk_prepare_host_ports "$current_state" || return 1
+  _dk_maybe_migrate_child_proxy
+  _dk_assert_docker_cli_compat || return 1
   _info "Starting container..."
   if _dk_should_build_local; then
     if _dk_force_local_rebuild; then
@@ -4100,8 +4525,8 @@ _dk_cmd_rebuild() {
   echo ""
   if [[ "$state" == "running" || "$state" == "exited" || "$state" == "created" || "$state" == "restarting" ]]; then
     _dk_load_env
-    _dk_maybe_migrate_child_proxy
     _dk_prepare_host_ports "$state" || return 1
+    _dk_maybe_migrate_child_proxy
     _info "Recreating existing container to use the rebuilt image..."
     _dk_compose up -d --force-recreate || return 1
     if _dk_wait_runtime_ready; then
@@ -4120,7 +4545,10 @@ _dk_cmd_rebuild() {
 
 _dk_cmd_enter() {
   _dk_init || return 1
-  _dk_compose exec -u "${CAC_FAKE_USER:-cherny}" "$_dk_service" bash
+  local shell_path
+  shell_path="${CAC_FAKE_SHELL:-$(_dk_read_env CAC_FAKE_SHELL)}"
+  shell_path="${shell_path:-/bin/bash}"
+  _dk_compose exec -u "${CAC_FAKE_USER:-cherny}" "$_dk_service" "$shell_path" -l
 }
 
 _dk_cmd_check() {
@@ -4252,7 +4680,7 @@ _dk_cmd_status() {
     local cip; cip=$(_dk_read_env MACVLAN_IP)
     [[ -n "$cip" ]] && printf "  Container:  %s\n" "$cip"
   fi
-  local workspace_host child_net docker_host child_proxy ssh_enabled ssh_port
+  local workspace_host child_net docker_host child_proxy ssh_enabled ssh_port data_dir_raw data_dir_abs data_state_summary
   workspace_host=$(_dk_workspace_host_current 2>/dev/null || echo "")
   child_net=$(_dk_read_env CAC_CHILD_CONTAINER_NETWORK_MODE)
   docker_host=$(_dk_read_env CAC_CONTAINER_DOCKER_HOST)
@@ -4265,6 +4693,12 @@ _dk_cmd_status() {
   web_enabled="${web_enabled:-1}"
   web_port=$(_dk_read_env CAC_HOST_WEB_PORT)
   web_port="${web_port:-3001}"
+  data_dir_raw="$(_dk_data_dir_raw)"
+  data_dir_abs="$(_dk_data_dir_abs "$data_dir_raw")"
+  data_state_summary="$(_dk_claude_state_summary "$data_dir_abs")"
+  printf "  Data dir:   %s\n" "$data_dir_raw"
+  printf "  Data path:  %s\n" "$data_dir_abs"
+  printf "  Claude:     %s\n" "$data_state_summary"
   [[ -n "$workspace_host" ]] && printf "  Workspace:  %s -> /workspace\n" "$workspace_host"
   [[ -n "$docker_host" ]] && printf "  Container Docker API: %s\n" "$docker_host"
   [[ -n "$child_net" ]] && printf "  Child net:  %s\n" "$child_net"
@@ -4321,33 +4755,27 @@ cmd_docker() {
     status)   _dk_cmd_status ;;
     logs)     _dk_cmd_logs ;;
     destroy)  _dk_cmd_destroy ;;
-    help|-h|--help|"")
-      echo ""
-      printf "\033[1mUsage:\033[0m cac docker <command>\n"
-      echo ""
-      printf "\033[1mLifecycle:\033[0m\n"
-      echo "  setup               Configure proxy (interactive)"
-      echo "  create              Build/pull the Docker image"
-      echo "  rebuild             Force-rebuild the Docker image"
-      echo "  start               Start the container"
-      echo "  stop                Stop the container"
-      echo "  restart             Restart the container"
-      echo "  destroy             Remove container and image"
-      echo ""
-      printf "\033[1mUse:\033[0m\n"
-      echo "  enter               Open a shell (claude + cac ready)"
-      echo "  port <port>         Forward localhost:port to container"
-      echo "  port list           List active port forwarders"
-      echo "  port stop [port]    Stop port forwarder(s)"
-      echo ""
-      printf "\033[1mDiagnostics:\033[0m\n"
-      echo "  check               Network + identity diagnostics"
-      echo "  status              Show config, state, and ports"
-      echo "  logs                Follow container logs"
-      echo "" ;;
+    ""|help|-h|--help)
+      cat <<'EOF'
+Usage: cac docker <subcommand>
+
+  setup      Configure proxy and network (interactive)
+  create     Build or pull the image
+  rebuild    Force rebuild image and recreate container if needed
+  start      Start the container
+  stop       Stop the container
+  restart    Restart the container
+  enter      Shell into the container
+  check      Diagnostics (network + identity)
+  port       Forward a localhost port to the container
+  status     Show current status
+  logs       Follow container logs
+  destroy    Remove container/network/images
+EOF
+      ;;
     *)
-      _err "Unknown docker command: $subcmd"
-      cmd_docker help
+      _err "Unknown docker subcommand: $subcmd"
+      _info "Use: cac docker help"
       return 1 ;;
   esac
 }

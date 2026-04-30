@@ -4,6 +4,7 @@ set -uo pipefail
 
 PASS="\033[32mok\033[0m"
 FAIL="\033[31mFAIL\033[0m"
+INFO="\033[36minfo\033[0m"
 errors=0
 
 PERSONA_HOME="${CAC_HOME:-${CAC_FAKE_HOME:-/home/${CAC_RUNTIME_USER:-${CAC_FAKE_USER:-cherny}}}}"
@@ -49,6 +50,22 @@ run_check() {
   else
     printf "[%-5s] $FAIL  %s\n" "$label" "${output:-$hint}"
     errors=$((errors + 1))
+  fi
+}
+
+run_info_check() {
+  local label="$1" hint="$2"
+  shift 2
+  local start end ms output
+  start=$(date +%s%N)
+  if output=$("$@" 2>&1); then
+    end=$(date +%s%N)
+    ms=$(( (end - start) / 1000000 ))
+    printf "[%-5s] $INFO %s (%dms)\n" "$label" "$output" "$ms"
+  else
+    end=$(date +%s%N)
+    ms=$(( (end - start) / 1000000 ))
+    printf "[%-5s] $INFO %s (%dms)\n" "$label" "${output:-$hint}" "$ms"
   fi
 }
 
@@ -126,6 +143,35 @@ PY
     return 1
   fi
   echo "CC=${country_code} (${country_name:-unknown}) exit=${exit_ip:-unknown} TZ=$tz LANG=$lang Accept=$accept"
+}
+
+check_proxy_speed() {
+  local stats
+  stats=$(timeout 20 curl -L -sS -o /dev/null \
+    -w '%{size_download}|%{time_total}|%{speed_download}' \
+    'https://speed.cloudflare.com/__down?bytes=1048576' 2>/dev/null || true)
+  [[ -n "$stats" ]] || return 1
+
+  python3 - "$stats" <<'PY'
+import sys
+
+size_s, time_s, speed_s = sys.argv[1].split("|")
+size = float(size_s or 0)
+elapsed = float(time_s or 0)
+speed = float(speed_s or 0)
+if size <= 0 or elapsed <= 0 or speed <= 0:
+    raise SystemExit(1)
+
+def fmt_bytes(value: float) -> str:
+    units = ["B", "KiB", "MiB", "GiB"]
+    idx = 0
+    while value >= 1024 and idx < len(units) - 1:
+        value /= 1024
+        idx += 1
+    return f"{value:.2f} {units[idx]}"
+
+print(f"{fmt_bytes(size)} in {elapsed:.2f}s ({fmt_bytes(speed)}/s)")
+PY
 }
 
 check_workspace_write() {
@@ -312,6 +358,7 @@ run_check "TCP"   "TCP connect failed — check proxy address and credentials" c
 run_check "HTTP"  "HTTP request failed — check TLS and proxy config" check_http
 run_check "EXIT"  "Cannot determine exit IP" check_exit_ip
 run_check "GEO"   "Timezone/locale not set" check_geo
+run_info_check "SPD" "proxy speed unavailable" check_proxy_speed
 run_check "WS"    "Workspace is not writable by runtime user" check_workspace_write
 
 echo ""

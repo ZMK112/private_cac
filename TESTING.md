@@ -6,6 +6,23 @@ This repo now has a repeatable local validation entrypoint:
 bash scripts/validate.sh
 ```
 
+The validation entrypoint now supports focused suites as well:
+
+```bash
+bash scripts/validate.sh --suite fast
+bash scripts/validate.sh --suite web
+bash scripts/validate.sh --suite security
+bash scripts/validate.sh --suite full
+```
+
+Long-running steps also emit periodic heartbeat lines such as:
+
+```text
+[INFO] docker-create still running (60s)
+```
+
+That is intentional and helps distinguish a real hang from a slow local image build or browser regression step.
+
 The script is designed for developer workstations and validates the current repo without touching your default `cac docker` stack:
 
 - Rebuilds `cac` from `src/`
@@ -13,6 +30,7 @@ The script is designed for developer workstations and validates the current repo
 - Runs an isolated CLI smoke test in a temp `HOME`
 - Creates an isolated Docker validation worktree
 - Starts a local SOCKS5 stub with `docker/dev-socks5.py`
+- The local SOCKS5 stub can optionally chain through a real host-side upstream proxy via `CAC_VALIDATE_UPSTREAM_PROXY`
 - Uses a unique `COMPOSE_PROJECT_NAME`, container names, and control subnet
 - Exercises `cac docker create/start/status/check/stop`
 - Verifies the Web UI is reachable on the published host port and inside the container
@@ -22,13 +40,20 @@ The script is designed for developer workstations and validates the current repo
 
 ## Current baseline
 
-As of April 1, 2026, the full local validation run completes successfully:
+As of April 28, 2026, the layered validation runs complete successfully:
+
+- `bash scripts/validate.sh --suite fast`
+- `bash scripts/validate.sh --suite web --keep-workdir`
+- `bash scripts/validate.sh --suite security --keep-workdir`
+- `bash scripts/validate.sh --suite full --keep-workdir`
+
+Latest `full` result: `17` pass / `0` fail / `0` warn.
+
+The old single-entrypoint run still works and is now equivalent to:
 
 ```bash
-bash scripts/validate.sh --keep-workdir
+bash scripts/validate.sh --suite full --keep-workdir
 ```
-
-Latest result: `12` pass / `0` fail / `0` warn.
 
 ## CI
 
@@ -45,11 +70,24 @@ That keeps local and CI validation aligned instead of maintaining a separate Doc
 # Build + CLI only
 bash scripts/validate.sh --skip-docker
 
+# Same as --skip-docker, but explicit
+bash scripts/validate.sh --suite fast
+
+# Web-only regression slice
+bash scripts/validate.sh --suite web
+
+# Security / network / wrapper slice
+bash scripts/validate.sh --suite security
+
 # Keep temp logs and workdirs for debugging
 bash scripts/validate.sh --keep-workdir
 
 # Force a specific local proxy port and control subnet
 bash scripts/validate.sh --proxy-port 17910 --subnet 172.28.245.0/24
+
+# Let the validation SOCKS stubs chain through a real local proxy
+CAC_VALIDATE_UPSTREAM_PROXY=socks5h://127.0.0.1:17891 \
+  bash scripts/validate.sh --suite full --keep-workdir
 ```
 
 ## Coverage
@@ -68,10 +106,32 @@ bash scripts/validate.sh --proxy-port 17910 --subnet 172.28.245.0/24
 - Host-to-container port forwarding
 - Fail-closed network behavior after proxy loss
 
+### Suite intent
+
+- `fast`
+  - build output generation
+  - syntax / parser checks
+  - isolated CLI smoke test
+- `web`
+  - Docker bring-up
+  - port auto-fallback
+  - Web UI reachability
+  - no-login mode
+  - shell `Disconnect` regression
+- `security`
+  - Docker bring-up
+  - `cac-check`
+  - child-container wrapper / proxy-bridge
+  - host port forwarding
+  - fail-closed behavior
+- `full`
+  - runs `fast + web + security`
+
 ### Manual follow-up required
 
 - Real Claude OAuth login and interactive `claude` use
 - Real upstream proxy providers beyond the local SOCKS5 stub
+- Host environments where direct IPv4 egress is unavailable unless a real local upstream proxy is supplied
 - Remote Linux `macvlan` mode
 - Real workspace child-container workloads from Claude Code
 - Docker daemon proxy behavior on the host or Docker Desktop

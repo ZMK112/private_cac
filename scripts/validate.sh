@@ -8,17 +8,20 @@ DOCKER_WORKTREE=""
 COMPOSE_PROJECT_NAME="cacvalidate$$"
 CONTAINER_NAME=""
 GATEWAY_NAME=""
+BRIDGE_NAME=""
 IMAGE_NAME=""
 PROXY_PID=""
 PROXY_PORT=""
 SSH_PORT=""
 WEB_PORT=""
+BRIDGE_PORT=""
 REQUESTED_SSH_PORT=""
 REQUESTED_WEB_PORT=""
 CONTROL_SUBNET=""
 PORT_BLOCKER_PIDS=()
 RUN_DOCKER=true
 KEEP_WORKDIR=false
+VALIDATE_SUITE="full"
 STEP_INDEX=0
 PASS_COUNT=0
 FAIL_COUNT=0
@@ -32,6 +35,7 @@ Run repeatable local validation for cac, including Docker-mode smoke tests.
 
 Options:
   --skip-docker      Run build/JS/CLI checks only
+  --suite NAME       Validation suite: fast | web | security | full
   --keep-workdir     Keep temp logs, HOME, and Docker worktree after exit
   --proxy-port PORT  Override the local SOCKS5 stub port
   --subnet CIDR      Override the validation Docker control subnet
@@ -44,7 +48,21 @@ parse_args() {
     case "$1" in
       --skip-docker)
         RUN_DOCKER=false
+        VALIDATE_SUITE="fast"
         shift
+        ;;
+      --suite)
+        [[ $# -ge 2 ]] || { echo "error: --suite requires a value" >&2; exit 1; }
+        case "$2" in
+          fast|web|security|full)
+            VALIDATE_SUITE="$2"
+            ;;
+          *)
+            echo "error: unknown suite: $2" >&2
+            exit 1
+            ;;
+        esac
+        shift 2
         ;;
       --keep-workdir)
         KEEP_WORKDIR=true
@@ -71,6 +89,12 @@ parse_args() {
         ;;
     esac
   done
+
+  if [[ "$VALIDATE_SUITE" == "fast" ]]; then
+    RUN_DOCKER=false
+  else
+    RUN_DOCKER=true
+  fi
 }
 
 require_tool() {
@@ -113,13 +137,36 @@ run_step() {
   local safe_name
   safe_name="$(sanitize_name "$name")"
   local logfile="$LOG_ROOT/$(printf '%02d' "$STEP_INDEX")-${safe_name}.log"
+  local heartbeat_after=30
+  local heartbeat_every=30
+  local start_ts last_heartbeat now rc heartbeat_pid
   STEP_INDEX=$((STEP_INDEX + 1))
+  start_ts=$SECONDS
+  last_heartbeat=0
+
+  (
+    while true; do
+      sleep 1
+      now=$((SECONDS - start_ts))
+      if (( now >= heartbeat_after && now - last_heartbeat >= heartbeat_every )); then
+        printf '[INFO] %s still running (%ss)\n' "$name" "$now"
+        last_heartbeat=$now
+      fi
+    done
+  ) &
+  heartbeat_pid=$!
+
   if "$@" >"$logfile" 2>&1; then
+    kill "$heartbeat_pid" 2>/dev/null || true
+    wait "$heartbeat_pid" 2>/dev/null || true
     pass "$name"
     return 0
   fi
+  rc=$?
+  kill "$heartbeat_pid" 2>/dev/null || true
+  wait "$heartbeat_pid" 2>/dev/null || true
   fail "$name" "$logfile"
-  return 1
+  return "$rc"
 }
 
 capture_docker_debug() {
@@ -142,6 +189,12 @@ capture_docker_debug() {
       docker inspect --format '{{json .State}}' "$GATEWAY_NAME" || true
       echo "-- logs ${GATEWAY_NAME} --"
       docker logs --tail 120 "$GATEWAY_NAME" || true
+    fi
+    if [[ -n "$BRIDGE_NAME" ]]; then
+      echo "-- inspect ${BRIDGE_NAME} --"
+      docker inspect --format '{{json .State}}' "$BRIDGE_NAME" || true
+      echo "-- logs ${BRIDGE_NAME} --"
+      docker logs --tail 120 "$BRIDGE_NAME" || true
     fi
     echo
   } >>"$debug_log" 2>&1
@@ -280,12 +333,60 @@ run_build_checks() {
   bash build.sh
   node --check src/relay.js
   node --check src/fingerprint-hook.js
-  bash -lc '
-    source src/cmd_docker.sh
-    test "$(_dk_guess_child_proxy_url local "127.0.0.1:1080:user:pass")" = "socks5h://user:pass@host.docker.internal:1080"
-    test "$(_dk_guess_child_proxy_url remote "socks5://user:pass@10.0.0.8:1080")" = "socks5://user:pass@10.0.0.8:1080"
-    test "$(_dk_guess_child_proxy_url remote "http://user:pass@10.0.0.8:8080")" = "http://user:pass@10.0.0.8:8080"
-  '
+  python3 scripts/cloudcli-upstream-audit.py --check
+  python3 - <<'PY'
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.getcwd(), 'docker'))
+from lib.protocols import parse
+from lib.singbox import render_proxy_bridge
+
+cases = [
+    (
+        'ss://YWVzLTI1Ni1nY206cGFzc3dvcmQ=@example.com:8388#demo',
+        'shadowsocks',
+        'example.com',
+        8388,
+    ),
+    (
+        'socks5://user:pass@example.com:1080',
+        'socks',
+        'example.com',
+        1080,
+    ),
+    (
+        'http://user:pass@example.com:8080',
+        'http',
+        'example.com',
+        8080,
+    ),
+    (
+        'socks://dXNlcjpwYXNz@example.com:1080#demo',
+        'socks',
+        'example.com',
+        1080,
+    ),
+]
+
+for uri, outbound_type, server, port in cases:
+    proxy = parse(uri)
+    config = render_proxy_bridge(
+        proxy,
+        listen_address='0.0.0.0',
+        listen_port=17891,
+        username='bridge',
+        password='secret',
+    )
+    inbound = config['inbounds'][0]
+    assert inbound['type'] == 'mixed'
+    assert inbound['listen_port'] == 17891
+    assert inbound['users'][0]['username'] == 'bridge'
+    assert config['outbounds'][0]['type'] == outbound_type
+    assert config['outbounds'][0]['server'] == server
+    assert config['outbounds'][0]['server_port'] == port
+PY
   bash -lc '
     source <(awk "
       /^proxy_env_url_for_disabled_singbox\\(\\)/ {flag=1}
@@ -296,6 +397,16 @@ run_build_checks() {
     test "$(proxy_env_url_for_disabled_singbox "socks5://user:pass@1.2.3.4:1080")" = "socks5://user:pass@1.2.3.4:1080"
     test "$(proxy_env_url_for_disabled_singbox "http://user:pass@1.2.3.4:8080")" = "http://user:pass@1.2.3.4:8080"
     ! proxy_env_url_for_disabled_singbox "ss://example"
+  '
+  bash -lc '
+    source src/cmd_docker.sh
+    test "$(_dk_guess_build_proxy_url local "127.0.0.1:1080")" = "socks5h://host.docker.internal:1080"
+    test "$(_dk_guess_build_proxy_url local "127.0.0.1:1080:user:pass")" = "socks5h://user:pass@host.docker.internal:1080"
+    test "$(_dk_guess_build_proxy_url local "socks5h://user:pass@127.0.0.1:1080")" = "socks5h://user:pass@host.docker.internal:1080"
+    test "$(_dk_canonicalize_proxy_uri "socks://dXNlcjpwYXNz@127.0.0.1:1080#demo")" = "socks5://user:pass@127.0.0.1:1080"
+    test "$(_dk_normalize_proxy_uri local "socks://dXNlcjpwYXNz@127.0.0.1:1080#demo")" = "socks5://user:pass@host.docker.internal:1080"
+    test "$(_dk_guess_build_proxy_url remote "http://user:pass@10.0.0.5:8080")" = "http://user:pass@10.0.0.5:8080"
+    test -z "$(_dk_guess_build_proxy_url local "ss://example")"
   '
   if command -v shellcheck >/dev/null 2>&1; then
     shellcheck -s bash -S warning \
@@ -356,6 +467,7 @@ prepare_docker_worktree() {
   IMAGE_NAME="cac-docker-validate:${COMPOSE_PROJECT_NAME}"
   CONTAINER_NAME="boris-validate-main-${COMPOSE_PROJECT_NAME}"
   GATEWAY_NAME="boris-validate-gateway-${COMPOSE_PROJECT_NAME}"
+  BRIDGE_NAME="boris-validate-child-proxy-${COMPOSE_PROJECT_NAME}"
 
   cat > "$DOCKER_WORKTREE/docker/.env" <<EOF
 PROXY_URI=host.docker.internal:${PROXY_PORT}
@@ -366,19 +478,26 @@ CAC_CHILD_CONTAINER_NETWORK_MODE=bridge
 CAC_DOCKER_PROXY_NAME=${GATEWAY_NAME}
 CAC_DOCKER_PROXY_IP=${CONTROL_SUBNET%0/24}2
 CAC_DOCKER_CLIENT_IP=${CONTROL_SUBNET%0/24}3
+CAC_CHILD_PROXY_BRIDGE_IP=${CONTROL_SUBNET%0/24}4
 CAC_DOCKER_CONTROL_SUBNET=${CONTROL_SUBNET}
 CAC_CONTAINER_DOCKER_HOST=tcp://${GATEWAY_NAME}:2375
 CAC_CHILD_CONTAINER_PROXY_URL=socks5h://host.docker.internal:${PROXY_PORT}
+CAC_CHILD_PROXY_BRIDGE_NAME=${BRIDGE_NAME}
 CAC_CHILD_CONTAINER_NO_PROXY=localhost,127.0.0.1,::1,host.docker.internal
 CAC_DOCKER_IMAGE=${IMAGE_NAME}
 CAC_DOCKER_BUILD_LOCAL=1
 CAC_HOST_SSH_PORT=${SSH_PORT}
 CAC_HOST_WEB_PORT=${WEB_PORT}
+CAC_FAKE_SHELL=/bin/bash
 EOF
 }
 
 start_proxy_stub() {
-  python3 "$DOCKER_WORKTREE/docker/dev-socks5.py" --host 0.0.0.0 --port "$PROXY_PORT" \
+  local -a args=(python3 "$DOCKER_WORKTREE/docker/dev-socks5.py" --host 0.0.0.0 --port "$PROXY_PORT")
+  if [[ -n "${CAC_VALIDATE_UPSTREAM_PROXY:-}" ]]; then
+    args+=(--upstream "$CAC_VALIDATE_UPSTREAM_PROXY")
+  fi
+  "${args[@]}" \
     >"$LOG_ROOT/proxy-stub.log" 2>&1 &
   PROXY_PID=$!
   wait_for_tcp 127.0.0.1 "$PROXY_PORT"
@@ -400,7 +519,8 @@ start_requested_port_blockers() {
 load_actual_host_ports() {
   SSH_PORT="$(awk -F= '/^CAC_HOST_SSH_PORT=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
   WEB_PORT="$(awk -F= '/^CAC_HOST_WEB_PORT=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
-  [[ -n "$SSH_PORT" && -n "$WEB_PORT" ]]
+  BRIDGE_PORT="$(awk -F= '/^CAC_CHILD_PROXY_BRIDGE_PORT=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
+  [[ -n "$SSH_PORT" && -n "$WEB_PORT" && -n "$BRIDGE_PORT" ]]
 }
 
 docker_create_step() {
@@ -439,6 +559,81 @@ docker_auto_port_step() {
 docker_status_step() {
   docker_cmd status | tee "$LOG_ROOT/docker-status.out"
   grep -q 'Status:.*running' "$LOG_ROOT/docker-status.out"
+}
+
+docker_setup_proxy_switch_step() {
+  local old_pid old_port old_container_id new_port new_pid expected_proxy actual_proxy new_container_id
+  old_pid="$PROXY_PID"
+  old_port="$PROXY_PORT"
+  old_container_id="$(docker inspect --format '{{.Id}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+  [[ -n "$old_container_id" ]] || return 1
+
+  new_port="$(random_free_port)"
+  while [[ "$new_port" == "$old_port" || "$new_port" == "$SSH_PORT" || "$new_port" == "$WEB_PORT" || "$new_port" == "$BRIDGE_PORT" ]]; do
+    new_port="$(random_free_port)"
+  done
+
+  local -a proxy_args=(python3 "$DOCKER_WORKTREE/docker/dev-socks5.py" --host 0.0.0.0 --port "$new_port")
+  if [[ -n "${CAC_VALIDATE_UPSTREAM_PROXY:-}" ]]; then
+    proxy_args+=(--upstream "$CAC_VALIDATE_UPSTREAM_PROXY")
+  fi
+  "${proxy_args[@]}" \
+    >"$LOG_ROOT/proxy-switch-stub.log" 2>&1 &
+  new_pid=$!
+  wait_for_tcp 127.0.0.1 "$new_port" || {
+    kill "$new_pid" 2>/dev/null || true
+    wait "$new_pid" 2>/dev/null || true
+    return 1
+  }
+
+  if ! printf '127.0.0.1:%s\n\ny\n' "$new_port" | docker_cmd setup; then
+    kill "$new_pid" 2>/dev/null || true
+    wait "$new_pid" 2>/dev/null || true
+    return 1
+  fi
+
+  expected_proxy="socks5://host.docker.internal:${new_port}"
+  actual_proxy="$(docker exec "$CONTAINER_NAME" sh -lc 'cat /home/cherny/.cac/envs/default/proxy' 2>/dev/null || true)"
+  [[ "$actual_proxy" == "$expected_proxy" ]] || {
+    kill "$new_pid" 2>/dev/null || true
+    wait "$new_pid" 2>/dev/null || true
+    echo "expected active proxy ${expected_proxy}, got ${actual_proxy:-<empty>}" >&2
+    return 1
+  }
+
+  new_container_id="$(docker inspect --format '{{.Id}}' "$CONTAINER_NAME" 2>/dev/null || true)"
+  [[ -n "$new_container_id" && "$new_container_id" != "$old_container_id" ]] || {
+    kill "$new_pid" 2>/dev/null || true
+    wait "$new_pid" 2>/dev/null || true
+    echo "container was not recreated after proxy switch" >&2
+    return 1
+  }
+
+  PROXY_PORT="$new_port"
+  PROXY_PID="$new_pid"
+  if [[ -n "$old_pid" ]] && kill -0 "$old_pid" 2>/dev/null; then
+    kill "$old_pid" 2>/dev/null || true
+    wait "$old_pid" 2>/dev/null || true
+  fi
+}
+
+docker_shell_switch_step() {
+  local actual_shell actual_shell_path
+  if ! printf '127.0.0.1:%s\nzsh\ny\n' "$PROXY_PORT" | docker_cmd setup; then
+    return 1
+  fi
+
+  actual_shell="$(docker exec "$CONTAINER_NAME" sh -lc 'getent passwd cherny | cut -d: -f7' 2>/dev/null || true)"
+  [[ "$actual_shell" == "/bin/zsh" ]] || {
+    echo "expected passwd shell /bin/zsh, got ${actual_shell:-<empty>}" >&2
+    return 1
+  }
+
+  actual_shell_path="$(docker exec "$CONTAINER_NAME" sh -lc 'cat /home/cherny/.cac/envs/default/shell_path' 2>/dev/null || true)"
+  [[ "$actual_shell_path" == "/bin/zsh" ]] || {
+    echo "expected shell_path /bin/zsh, got ${actual_shell_path:-<empty>}" >&2
+    return 1
+  }
 }
 
 docker_web_ui_step() {
@@ -575,22 +770,29 @@ NODE
 }
 
 docker_cac_check_step() {
-  docker_cmd check
+  docker_cmd check | tee "$LOG_ROOT/docker-check-command.out"
+  grep -q '^\[SPD  \]' "$LOG_ROOT/docker-check-command.out"
 }
 
 docker_container_check_step() {
-  docker exec "$CONTAINER_NAME" cac-check
+  docker exec "$CONTAINER_NAME" cac-check | tee "$LOG_ROOT/container-cac-check.out"
+  grep -q '^\[SPD  \]' "$LOG_ROOT/container-cac-check.out"
 }
 
 docker_child_wrapper_step() {
-  local version_out child_out
+  local version_out child_out bridge_user bridge_password expected_all expected_http
   version_out="$(docker exec "$CONTAINER_NAME" docker version --format '{{.Server.Version}}')"
   [[ -n "$version_out" ]]
+  bridge_user="$(awk -F= '/^CAC_CHILD_PROXY_BRIDGE_USER=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
+  bridge_password="$(awk -F= '/^CAC_CHILD_PROXY_BRIDGE_PASSWORD=/{print $2}' "$DOCKER_WORKTREE/docker/.env" | tail -n1)"
+  expected_all="socks5h://${bridge_user}:${bridge_password}@host.docker.internal:${BRIDGE_PORT}"
+  expected_http="http://${bridge_user}:${bridge_password}@host.docker.internal:${BRIDGE_PORT}"
   child_out="$(
     docker exec "$CONTAINER_NAME" sh -lc \
-      "docker run --rm --entrypoint sh -v /workspace:/mnt ${IMAGE_NAME} -lc 'test -d /mnt && printf \"%s\\n\" \"\$ALL_PROXY\"'"
+      "docker run --rm --entrypoint sh -v /workspace:/mnt ${IMAGE_NAME} -lc 'test -d /mnt && printf \"ALL_PROXY=%s\\nHTTP_PROXY=%s\\n\" \"\$ALL_PROXY\" \"\$HTTP_PROXY\" && curl --max-time 10 -fsS https://ifconfig.me >/dev/null'"
   )"
-  echo "$child_out" | grep -q "socks5h://host.docker.internal:${PROXY_PORT}"
+  echo "$child_out" | grep -q "ALL_PROXY=${expected_all}"
+  echo "$child_out" | grep -q "HTTP_PROXY=${expected_http}"
 }
 
 docker_port_forward_step() {
@@ -619,6 +821,39 @@ docker_stop_step() {
   ! docker ps --format '{{.Names}}' | grep -qx "$CONTAINER_NAME"
 }
 
+run_fast_suite() {
+  run_step "build-and-js-checks" run_build_checks || true
+  run_step "cli-smoke" run_cli_smoke || true
+}
+
+prepare_docker_suite() {
+  require_tool docker
+  require_tool curl
+  prepare_docker_worktree
+  run_step "proxy-stub" start_proxy_stub || true
+  run_step "docker-create" docker_create_step || capture_docker_debug "docker-create"
+  run_step "docker-port-autofallback" start_requested_port_blockers || true
+  run_step "docker-start" docker_start_step || capture_docker_debug "docker-start"
+  run_step "docker-port-autofallback-check" docker_auto_port_step || capture_docker_debug "docker-port-autofallback-check"
+  run_step "docker-status" docker_status_step || capture_docker_debug "docker-status"
+  run_step "docker-setup-proxy-switch" docker_setup_proxy_switch_step || capture_docker_debug "docker-setup-proxy-switch"
+  run_step "docker-shell-switch" docker_shell_switch_step || capture_docker_debug "docker-shell-switch"
+}
+
+run_web_suite() {
+  run_step "docker-web-ui" docker_web_ui_step || capture_docker_debug "docker-web-ui"
+  run_step "docker-web-ui-no-login" docker_web_nologin_step || capture_docker_debug "docker-web-ui-no-login"
+  run_step "docker-web-ui-disconnect" docker_web_disconnect_step || capture_docker_debug "docker-web-ui-disconnect"
+}
+
+run_security_suite() {
+  run_step "docker-check-command" docker_cac_check_step || capture_docker_debug "docker-check-command"
+  run_step "container-cac-check" docker_container_check_step || capture_docker_debug "container-cac-check"
+  run_step "child-docker-wrapper" docker_child_wrapper_step || capture_docker_debug "child-docker-wrapper"
+  run_step "docker-port-forward" docker_port_forward_step || capture_docker_debug "docker-port-forward"
+  run_step "docker-fail-closed" docker_fail_closed_step || capture_docker_debug "docker-fail-closed"
+}
+
 print_summary() {
   echo
   echo "Validation summary"
@@ -641,29 +876,28 @@ main() {
   require_tool rsync
   LOG_ROOT="$(mktemp_dir cac-validate-logs)"
 
-  run_step "build-and-js-checks" run_build_checks || true
-  run_step "cli-smoke" run_cli_smoke || true
-
-  if [[ "$RUN_DOCKER" == "true" ]]; then
-    require_tool docker
-    require_tool curl
-    prepare_docker_worktree
-    run_step "proxy-stub" start_proxy_stub || true
-    run_step "docker-create" docker_create_step || capture_docker_debug "docker-create"
-    run_step "docker-port-autofallback" start_requested_port_blockers || true
-    run_step "docker-start" docker_start_step || capture_docker_debug "docker-start"
-    run_step "docker-port-autofallback-check" docker_auto_port_step || capture_docker_debug "docker-port-autofallback-check"
-    run_step "docker-status" docker_status_step || capture_docker_debug "docker-status"
-    run_step "docker-web-ui" docker_web_ui_step || capture_docker_debug "docker-web-ui"
-    run_step "docker-web-ui-no-login" docker_web_nologin_step || capture_docker_debug "docker-web-ui-no-login"
-    run_step "docker-web-ui-disconnect" docker_web_disconnect_step || capture_docker_debug "docker-web-ui-disconnect"
-    run_step "docker-check-command" docker_cac_check_step || capture_docker_debug "docker-check-command"
-    run_step "container-cac-check" docker_container_check_step || capture_docker_debug "container-cac-check"
-    run_step "child-docker-wrapper" docker_child_wrapper_step || capture_docker_debug "child-docker-wrapper"
-    run_step "docker-port-forward" docker_port_forward_step || capture_docker_debug "docker-port-forward"
-    run_step "docker-fail-closed" docker_fail_closed_step || capture_docker_debug "docker-fail-closed"
-    run_step "docker-stop" docker_stop_step || capture_docker_debug "docker-stop"
-  fi
+  case "$VALIDATE_SUITE" in
+    fast)
+      run_fast_suite
+      ;;
+    web)
+      prepare_docker_suite
+      run_web_suite
+      run_step "docker-stop" docker_stop_step || capture_docker_debug "docker-stop"
+      ;;
+    security)
+      prepare_docker_suite
+      run_security_suite
+      run_step "docker-stop" docker_stop_step || capture_docker_debug "docker-stop"
+      ;;
+    full)
+      run_fast_suite
+      prepare_docker_suite
+      run_web_suite
+      run_security_suite
+      run_step "docker-stop" docker_stop_step || capture_docker_debug "docker-stop"
+      ;;
+  esac
 
   print_summary
   [[ "$FAIL_COUNT" -eq 0 ]]

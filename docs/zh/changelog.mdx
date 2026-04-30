@@ -5,6 +5,38 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.4.4-zmk.13-web.3
+<sub>2026-04-30</sub>
+
+**Docker 工作流加固与数据安全更新**
+
+- 增强 Docker 运行时 setup 行为：
+  - `cac docker setup` 现在支持选择默认 shell（`bash` / `zsh`）
+  - 运行中代理切换会先保存设置，再在获得显式确认后才重启已运行的栈
+  - 当切换 `CAC_DATA` 会把 Claude 持久化状态迁移到新目录时，现在必须显式确认
+- 增加“默认保留数据”的安全提示：
+  - `install.sh` 现在会明确提示 Docker 重建/重装默认保留 Claude 登录状态、记忆和历史 session
+  - `cac docker status` 现在会同时打印 `CAC_DATA` 的原始值和解析后的绝对路径
+- 补齐 share-link 兼容和真实代理验证：
+  - Docker setup 现在接受 `socks://BASE64(user:pass)@host:port#tag`
+  - 已用真实 `socks://...` 和 `ss://...` 代理做端到端验证，包括首次 setup/create/start 和运行中代理切换
+- 改进 `cac docker check` 体验：
+  - 输出现在会逐项流式打印，不再必须等所有检查结束后才看到结果
+  - 新增非门禁的 `SPD` 速度项，仅展示代理吞吐，不影响 pass/fail
+- 修复 Docker 本地控制网络处理：`cac docker setup` 不再把已选 control subnet 强行写回固定 `172.31.255.0/24`，避免验证重启时出现 subnet overlap。
+- 自动化验证已重新恢复全绿：`19 pass / 0 fail / 0 warn`。
+
+## v1.4.4-zmk.13-web.2
+<sub>2026-04-30</sub>
+
+**Release 打包修复**
+
+- 修复 Web 增强版 release 打包：vendored CloudCLI 源码里位于嵌套 `data/` 目录下的文件不再被仓库级 `.gitignore` 误忽略。
+- 补回 Docker 镜像构建所需、此前未进入 git/tag 的两个 CloudCLI 前端源码文件：
+  - `project-creation-wizard/data/workspaceApi.ts`
+  - `mic-button/data/whisper.ts`
+- 这修复了从 GitHub release 源码包重新安装时，在 Docker 镜像 `npm run build` 阶段因为缺文件而失败的问题。
+
 ## v1.4.4-zmk.13-web.1
 <sub>2026-04-14</sub>
 

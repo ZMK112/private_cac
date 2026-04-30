@@ -30,6 +30,11 @@ def parse(uri: str) -> ProxyConfig:
     if "://" in uri:
         scheme = uri.split("://", 1)[0].lower()
         parsers = {
+            "http": _parse_http,
+            "https": _parse_http,
+            "socks": _parse_socks,
+            "socks5": _parse_socks5,
+            "socks5h": _parse_socks5,
             "ss": _parse_ss,
             "vmess": _parse_vmess,
             "vless": _parse_vless,
@@ -60,6 +65,60 @@ def _parse_compact(uri: str) -> ProxyConfig:
         )
     raise ValueError(
         f"Invalid compact format (expect ip:port or ip:port:user:pass): {uri}"
+    )
+
+
+def _parse_socks5(uri: str) -> ProxyConfig:
+    parsed = urlparse(uri)
+    return ProxyConfig(
+        type="socks5",
+        server=parsed.hostname or "",
+        port=parsed.port or 1080,
+        username=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+    )
+
+
+def _parse_socks(uri: str) -> ProxyConfig:
+    uri = uri.split("#", 1)[0]
+    body = uri[len("socks://"):]
+
+    if "@" in body:
+        userinfo, hostport = body.rsplit("@", 1)
+        try:
+            decoded = _b64decode(userinfo)
+        except Exception:
+            decoded = unquote(userinfo)
+    else:
+        decoded = _b64decode(body)
+        userinfo, hostport = decoded.rsplit("@", 1)
+        decoded = userinfo
+
+    if ":" in decoded:
+        username, password = decoded.split(":", 1)
+    else:
+        username, password = decoded, ""
+
+    host, port = hostport.rsplit(":", 1)
+    return ProxyConfig(
+        type="socks5",
+        server=host,
+        port=int(port),
+        username=username,
+        password=password,
+    )
+
+
+def _parse_http(uri: str) -> ProxyConfig:
+    parsed = urlparse(uri)
+    return ProxyConfig(
+        type="http",
+        server=parsed.hostname or "",
+        port=parsed.port or (443 if parsed.scheme == "https" else 80),
+        username=unquote(parsed.username or ""),
+        password=unquote(parsed.password or ""),
+        tls=parsed.scheme == "https",
+        sni=parsed.hostname or "",
     )
 
 

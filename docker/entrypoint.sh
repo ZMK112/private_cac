@@ -35,6 +35,8 @@ CAC_RUNTIME_ENV_FILE="${PROFILE_HOME}/.cac-env"
 PROFILE_BASHRC="${PROFILE_HOME}/.bashrc"
 PROFILE_PROFILE="${PROFILE_HOME}/.profile"
 PROFILE_BASH_PROFILE="${PROFILE_HOME}/.bash_profile"
+PROFILE_ZSHRC="${PROFILE_HOME}/.zshrc"
+PROFILE_ZPROFILE="${PROFILE_HOME}/.zprofile"
 CAC_CLOUDCLI_ENV_FILE="/etc/cac-cloudcli.env"
 
 unset ALL_PROXY HTTP_PROXY HTTPS_PROXY all_proxy http_proxy https_proxy \
@@ -94,7 +96,7 @@ proxy_env_url_for_disabled_singbox() {
 
 ensure_profile_home() {
   mkdir -p "$PROFILE_HOME" "$PROFILE_HOME/.local/bin"
-  touch "$PROFILE_BASHRC" "$PROFILE_PROFILE"
+  touch "$PROFILE_BASHRC" "$PROFILE_PROFILE" "$PROFILE_BASH_PROFILE" "$PROFILE_ZSHRC" "$PROFILE_ZPROFILE"
 }
 
 migrate_root_state() {
@@ -117,15 +119,29 @@ migrate_root_state() {
 
 sync_shell_rc() {
   local rc
-  for rc in "$PROFILE_BASHRC" "$PROFILE_PROFILE" "$PROFILE_BASH_PROFILE" /root/.bashrc /root/.profile; do
+  for rc in \
+    "$PROFILE_BASHRC" \
+    "$PROFILE_PROFILE" \
+    "$PROFILE_BASH_PROFILE" \
+    "$PROFILE_ZSHRC" \
+    "$PROFILE_ZPROFILE" \
+    /root/.bashrc \
+    /root/.profile \
+    /root/.zshrc \
+    /root/.zprofile
+  do
     touch "$rc"
     grep -q 'cac-env' "$rc" 2>/dev/null || \
       echo '[ -f ~/.cac-env ] && . ~/.cac-env' >> "$rc"
   done
   grep -q 'docker-real' "$PROFILE_BASHRC" 2>/dev/null || \
     echo 'alias docker-real=/usr/local/bin/docker-real' >> "$PROFILE_BASHRC"
+  grep -q 'docker-real' "$PROFILE_ZSHRC" 2>/dev/null || \
+    echo 'alias docker-real=/usr/local/bin/docker-real' >> "$PROFILE_ZSHRC"
   grep -q 'docker-real' /root/.bashrc 2>/dev/null || \
     echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.bashrc
+  grep -q 'docker-real' /root/.zshrc 2>/dev/null || \
+    echo 'alias docker-real=/usr/local/bin/docker-real' >> /root/.zshrc
   printf '[ -f "%s" ] && . "%s"\n' "$CAC_RUNTIME_ENV_FILE" "$CAC_RUNTIME_ENV_FILE" > /etc/profile.d/cac-env.sh
 }
 
@@ -248,6 +264,8 @@ prepare_runtime_user() {
   if [[ "$CURRENT_RUNTIME_UID" != "$current_uid" ]]; then
     usermod -o -u "$CURRENT_RUNTIME_UID" "$CAC_FAKE_USER" 2>/dev/null || true
   fi
+
+  usermod -s "$CAC_FAKE_SHELL" "$CAC_FAKE_USER" 2>/dev/null || true
 
   chown -R "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "$PROFILE_HOME" 2>/dev/null || true
   [[ -d "$PROFILE_HOME/.cac" ]] && chown -R "$CURRENT_RUNTIME_UID:$CURRENT_RUNTIME_GID" "$PROFILE_HOME/.cac" 2>/dev/null || true

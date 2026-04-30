@@ -60,6 +60,7 @@ Notes:
 - The Web UI is part of the main protected container, not a separate relaxed sidecar
 - `cac docker check` remains the primary gate for privacy/network correctness
 - The Web UI must not be treated as valid if Docker-mode protection checks regress
+- Child containers now use a dedicated authenticated `proxy-bridge` sidecar that converts the upstream `PROXY_URI` into standard HTTP/SOCKS proxy URLs, so share-link protocols such as `ss://`, `vmess://`, `vless://`, and `trojan://` can flow through child-container workloads too.
 
 ## Proxy formats
 
@@ -90,6 +91,8 @@ Mode is auto-detected based on your Docker installation.
 ## Notes
 
 - `cac docker setup` writes config into the active Docker resource directory: usually `~/.cac/docker/.env` after a local install, or `docker/.env` when running from the source tree.
+- Docker mode persists `/root` and `/home` under `CAC_DATA` (default: `docker/data` in the active Docker resource directory). Rebuilds and reinstalls recreate containers/images but preserve Claude login state, memory, and session history unless you manually delete that data directory.
+- `cac docker status` now shows both the raw `CAC_DATA` setting and the resolved absolute data path so you can back it up before any destructive cleanup.
 - The setup wizard normally prompts only for the proxy. Deploy mode is auto-detected, and other required values are written with defaults automatically. In remote mode, it only asks for macvlan fields if auto-detection fails.
 - In local Docker Desktop mode, entering `127.0.0.1:port` or `localhost:port` for the proxy is rewritten to `host.docker.internal:port` automatically.
 - `cac docker enter` opens a shell in the main container. `claude`, `cac`, and `docker` are already on `PATH`.
@@ -100,3 +103,11 @@ Mode is auto-detected based on your Docker installation.
 - Docker mode now publishes the Web UI on `0.0.0.0:${CAC_HOST_WEB_PORT:-3001}` by default.
 - To keep the Web UI localhost-only, set `CAC_HOST_WEB_BIND=127.0.0.1` and restart the stack.
 - If you keep both defaults (`CAC_HOST_SSH_BIND=0.0.0.0` and `CAC_HOST_WEB_BIND=0.0.0.0`), remember that LAN clients can reach both password-auth SSH and the no-login Web UI.
+- For a quick localhost-only lockdown, put this in `docker/.env` or `~/.cac/docker/.env`:
+
+```env
+CAC_HOST_SSH_BIND=127.0.0.1
+CAC_HOST_WEB_BIND=127.0.0.1
+```
+
+- `BUILD_PROXY` is optional and only affects image-build downloads. If `cac docker create` / `cac docker rebuild` fails while downloading external assets such as `claude.ai/install.sh`, set `BUILD_PROXY` to a standard `http://...` or `socks5h://...` URL and retry.

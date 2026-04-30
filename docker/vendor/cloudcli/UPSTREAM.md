@@ -15,3 +15,9 @@ Why `v1.26.3` first:
 Upgrade rule:
 
 - update this file on every upstream bump before local patches are rebased
+- run `python3 scripts/cloudcli-upstream-audit.py --check` after editing this file
+  or `PATCHES.md`
+- useful report modes:
+  - `python3 scripts/cloudcli-upstream-audit.py --report`
+  - `python3 scripts/cloudcli-upstream-audit.py --report --patch CAC-SHELL-001`
+  - `python3 scripts/cloudcli-upstream-audit.py --json`

@@ -28,7 +28,7 @@ RUN set -eux; \
       build-essential ca-certificates curl git gosu iproute2 \
       jq fd-find locales nftables procps python3 python3-venv docker.io \
       openssh-server openssl ripgrep sqlite3 sudo tree unzip util-linux uuid-runtime zip tzdata \
-      vim tmux less bat \
+      vim tmux less bat zsh \
     && rm -rf /var/lib/apt/lists/* \
     && sed -i 's/^# *\(en_US\|en_GB\|ja_JP\|ko_KR\|zh_CN\|zh_TW\|de_DE\|fr_FR\)\.UTF-8/\1.UTF-8/' /etc/locale.gen \
     && locale-gen \

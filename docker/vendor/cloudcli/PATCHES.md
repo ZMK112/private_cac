@@ -54,24 +54,59 @@ Patch format:
 
 - Status: implemented
 - Files:
-  - `docker/vendor/cloudcli/upstream/server/utils/cac-paths.js`
-  - `docker/vendor/cloudcli/upstream/server/cli.js`
-  - `docker/vendor/cloudcli/upstream/server/index.js`
-  - `docker/vendor/cloudcli/upstream/server/claude-sdk.js`
-  - `docker/vendor/cloudcli/upstream/server/projects.js`
-  - `docker/vendor/cloudcli/upstream/server/routes/agent.js`
-  - `docker/vendor/cloudcli/upstream/server/routes/cli-auth.js`
-  - `docker/vendor/cloudcli/upstream/server/routes/commands.js`
-  - `docker/vendor/cloudcli/upstream/server/routes/mcp.js`
-  - `docker/vendor/cloudcli/upstream/server/utils/mcp-detector.js`
-- Reason: replace hardcoded `os.homedir()/.claude*` assumptions with a small
-  compatibility helper layer so future upgrades are easier to rebase
+  - `docker/entrypoint.sh`
+  - `docker/web/cloudcli-env.sh`
+- Reason: keep CloudCLI compatible with the current active `cac` env by mapping
+  the active profile's Claude state into the `HOME/.claude*` locations that the
+  pinned CloudCLI version still expects
 - Verification:
-  - project/session/config discovery still works
-  - no fallback to host-style default config roots
-  - explicit Claude CLI entry points now use helper-backed command resolution in
-    both MCP routes and the interactive shell path
-- Upstream status: `cac`-specific unless generalized cleanly
+  - project/session/config discovery still works through the active env mapping
+  - Web mode sees the active profile's `.claude` and `.claude.json` state
+- Upstream status: `cac`-specific runtime compatibility layer
+
+### `CAC-AUTH-001`
+
+- Status: implemented
+- Files:
+  - `docker/web/cloudcli-bootstrap-user.sh`
+  - `docker/s6/cloudcli/run`
+  - `docker/vendor/cloudcli/upstream/server/middleware/auth.js`
+  - `docker/vendor/cloudcli/upstream/src/components/auth/view/ProtectedRoute.tsx`
+- Reason: keep Docker Web mode in no-login platform mode so browser access goes
+  straight into the app instead of stopping on CloudCLI auth pages
+- Verification:
+  - `/api/auth/user` responds without a manual login
+  - the Web UI does not show login/signup forms in Docker platform mode
+- Upstream status: `cac`-specific unless CloudCLI gains a first-class single-user Docker mode
+
+### `CAC-SHELL-001`
+
+- Status: implemented
+- Files:
+  - `docker/vendor/cloudcli/upstream/src/components/shell/hooks/useShellConnection.ts`
+  - `docker/vendor/cloudcli/upstream/src/components/shell/hooks/useShellRuntime.ts`
+  - `docker/vendor/cloudcli/upstream/src/components/shell/types/types.ts`
+  - `docker/vendor/cloudcli/upstream/src/components/shell/view/Shell.tsx`
+- Reason: preserve a true manual Disconnect behavior; clicking `Disconnect`
+  must keep the shell disconnected until the user explicitly reconnects
+- Verification:
+  - Web validation clicks `Disconnect`
+  - `Connect` remains visible
+  - the shell does not auto-reconnect until the user clicks `Connect`
+- Upstream status: good upstream candidate if CloudCLI wants clearer manual-vs-auto reconnect semantics
+
+### `CAC-UPDATE-001`
+
+- Status: implemented
+- Files:
+  - `docker/s6/cloudcli/run`
+  - `docker/vendor/cloudcli/upstream/server/cli.js`
+- Reason: disable CloudCLI update checks in Docker runtime so startup does not
+  make unnecessary external calls
+- Verification:
+  - startup works without update-check noise
+  - Docker Web mode does not depend on outbound update checks
+- Upstream status: `cac`-specific runtime policy
 
 ### `HC-WS-001`
 

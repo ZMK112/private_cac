@@ -12,12 +12,33 @@ services:
         ipv4_address: ${CAC_DOCKER_PROXY_IP:-172.31.255.2}
     restart: unless-stopped
 
+  proxy-bridge:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.proxy-bridge
+      args:
+        BUILD_PROXY: ${BUILD_PROXY:-}
+    container_name: ${CAC_CHILD_PROXY_BRIDGE_NAME:-boris-child-proxy}
+    environment:
+      PROXY_URI: ${PROXY_URI:?Set PROXY_URI in .env}
+      CAC_CHILD_PROXY_BRIDGE_LISTEN: 0.0.0.0
+      CAC_CHILD_PROXY_BRIDGE_PORT: ${CAC_CHILD_PROXY_BRIDGE_PORT:?Set CAC_CHILD_PROXY_BRIDGE_PORT in .env}
+      CAC_CHILD_PROXY_BRIDGE_USER: ${CAC_CHILD_PROXY_BRIDGE_USER:?Set CAC_CHILD_PROXY_BRIDGE_USER in .env}
+      CAC_CHILD_PROXY_BRIDGE_PASSWORD: ${CAC_CHILD_PROXY_BRIDGE_PASSWORD:?Set CAC_CHILD_PROXY_BRIDGE_PASSWORD in .env}
+    ports:
+      - "${CAC_CHILD_PROXY_BRIDGE_BIND:-0.0.0.0}:${CAC_CHILD_PROXY_BRIDGE_PORT:?Set CAC_CHILD_PROXY_BRIDGE_PORT in .env}:${CAC_CHILD_PROXY_BRIDGE_PORT:?Set CAC_CHILD_PROXY_BRIDGE_PORT in .env}"
+    networks:
+      docker_control:
+        ipv4_address: ${CAC_CHILD_PROXY_BRIDGE_IP:?Set CAC_CHILD_PROXY_BRIDGE_IP in .env}
+    restart: unless-stopped
+
   cac:
-    image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:v1.4.4-zmk.13-web.1}
+    image: ${CAC_DOCKER_IMAGE:-ghcr.io/nmhjklnm/cac-docker:v1.4.4-zmk.13-web.3}
     container_name: ${CAC_CONTAINER_NAME:-boris-main}
     hostname: ${CAC_CONTAINER_RUNTIME_HOSTNAME:-boris-main}
     depends_on:
       - docker-proxy
+      - proxy-bridge
     shm_size: ${CAC_SHM_SIZE:-2g}
     privileged: true
     cap_add:
@@ -38,7 +59,10 @@ services:
       CAC_SHARED_WORKSPACE_HOST: ${CAC_WORKSPACE_HOST:?Set CAC_WORKSPACE_HOST in .env}
       CAC_CHILD_CONTAINER_NETWORK_MODE: ${CAC_CHILD_CONTAINER_NETWORK_MODE:-bridge}
       CAC_CHILD_CONTAINER_PROXY_URL: ${CAC_CHILD_CONTAINER_PROXY_URL:-}
-      CAC_CHILD_CONTAINER_NO_PROXY: ${CAC_CHILD_CONTAINER_NO_PROXY:-localhost,127.0.0.1,::1}
+      CAC_CHILD_CONTAINER_HTTP_PROXY_URL: ${CAC_CHILD_CONTAINER_HTTP_PROXY_URL:-}
+      CAC_CHILD_CONTAINER_ALL_PROXY_URL: ${CAC_CHILD_CONTAINER_ALL_PROXY_URL:-}
+      CAC_CHILD_CONTAINER_NO_PROXY: ${CAC_CHILD_CONTAINER_NO_PROXY:-localhost,127.0.0.1,::1,host.docker.internal}
+      CAC_CHILD_CONTAINER_ADD_HOST_GATEWAY: ${CAC_CHILD_CONTAINER_ADD_HOST_GATEWAY:-1}
       CAC_REAL_DOCKER_BIN: /usr/local/bin/docker-real
       CAC_ENABLE_SSH: ${CAC_ENABLE_SSH:-1}
       CAC_SSH_PASSWORD: ${CAC_SSH_PASSWORD:-cherny}
