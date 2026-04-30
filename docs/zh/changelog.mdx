@@ -5,6 +5,17 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.4.4-zmk.13-web.2
+<sub>2026-04-30</sub>
+
+**Release 打包修复**
+
+- 修复 Web 增强版 release 打包：vendored CloudCLI 源码里位于嵌套 `data/` 目录下的文件不再被仓库级 `.gitignore` 误忽略。
+- 补回 Docker 镜像构建所需、此前未进入 git/tag 的两个 CloudCLI 前端源码文件：
+  - `project-creation-wizard/data/workspaceApi.ts`
+  - `mic-button/data/whisper.ts`
+- 这修复了从 GitHub release 源码包重新安装时，在 Docker 镜像 `npm run build` 阶段因为缺文件而失败的问题。
+
 ## v1.4.4-zmk.13-web.1
 <sub>2026-04-14</sub>
 

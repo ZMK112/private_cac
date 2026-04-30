@@ -5,6 +5,17 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.4.4-zmk.13-web.2
+<sub>2026-04-30</sub>
+
+**Release packaging fix**
+
+- Fixed the Web-enabled release packaging so vendored CloudCLI source files under nested `data/` directories are no longer dropped by the repo-level `.gitignore`.
+- Restored the missing CloudCLI frontend source files required by the build:
+  - `project-creation-wizard/data/workspaceApi.ts`
+  - `mic-button/data/whisper.ts`
+- This fixes fresh installs from GitHub release source archives and rebuilt portable packages that previously failed during the `npm run build` step inside the Docker image.
+
 ## v1.4.4-zmk.13-web.1
 <sub>2026-04-14</sub>
 

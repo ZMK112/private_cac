@@ -23,5 +23,6 @@ node_modules/
 # docker
 docker/.env
 docker/.env.*
-data/
+/data/
+/docker/data/
 CLAUDE.local.md
