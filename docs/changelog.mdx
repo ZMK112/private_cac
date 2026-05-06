@@ -5,6 +5,19 @@ description: Release history and notable changes
 
 All notable changes to this project are documented here. Each entry links to the corresponding PR or issue.
 
+## v1.4.4-zmk.13-web.4
+<sub>2026-05-06</sub>
+
+**Shell-default and release housekeeping update**
+
+- `cac docker setup` now defaults the interactive shell choice to `zsh` when no Docker shell preference has been saved yet.
+- Added `scripts/post-release-cleanup.sh` as a safe local housekeeping hook for release completion.
+  - removes validation scratch directories under `/tmp`
+  - removes repo-local `__pycache__`
+  - prunes unused Docker images and build cache
+  - intentionally preserves running containers, volumes, Docker persisted Claude state, and release assets
+- Added documentation and project-memory rules so the cleanup hook is only run after a release is complete and there is no immediate follow-up validation or development task.
+
 ## v1.4.4-zmk.13-web.3
 <sub>2026-04-30</sub>
 

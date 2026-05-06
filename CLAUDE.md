@@ -51,6 +51,7 @@
   - do not implicitly switch `CAC_DATA`
   - do not introduce destructive cleanup of Claude persisted state by default
   - do not release from this branch until full validation is green, even if real-proxy manual tests already pass
+  - after a release is finished and there is no immediate next validation/dev task, run `bash scripts/post-release-cleanup.sh` to remove temporary garbage and unused Docker cache
 
 ## Current Direction
 
@@ -258,6 +259,25 @@ Unless requirements change, do not reopen already-settled architecture choices s
   - root cause:
     - the local validation helper `docker/dev-socks5.py` is a host-side SOCKS stub
     - `cac-check` and the protected container send IPv4 literal targets such as `1.1.1.1:443`
+
+## Post-release housekeeping
+
+- A dedicated cleanup hook now exists:
+  - `bash scripts/post-release-cleanup.sh`
+- Use it only after a release is done and there is no immediate follow-up
+  validation or development task.
+- It is allowed to remove:
+  - `/tmp/cac-validate-*`
+  - `/tmp/cacmanual*`
+  - `/tmp/cac-web-*`
+  - `/tmp/proxy-stub-*`
+  - repo-local `__pycache__`
+  - unused Docker images, stopped containers, networks, and build cache
+- It must not remove:
+  - running containers
+  - Docker volumes
+  - persisted Claude state under `docker/data` or `CAC_DATA`
+  - release assets under `dist/`
     - this macOS host currently does not have a usable direct IPv4 egress path for those targets, so the stub cannot relay them directly
     - this is a validation-fixture limitation on this machine, not a confirmed product regression
   - latest local mitigation:

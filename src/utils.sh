@@ -3,7 +3,7 @@
 # shellcheck disable=SC2034  # used in build-concatenated cac script
 CAC_VERSION="1.4.0"
 CAC_DOCKER_IMAGE_REPO="${CAC_DOCKER_IMAGE_REPO:-ghcr.io/nmhjklnm/cac-docker}"
-CAC_DOCKER_IMAGE_TAG="${CAC_DOCKER_IMAGE_TAG:-v1.4.4-zmk.13-web.3}"
+CAC_DOCKER_IMAGE_TAG="${CAC_DOCKER_IMAGE_TAG:-v1.4.4-zmk.13-web.4}"
 
 _read()   { [[ -f "$1" ]] && tr -d '[:space:]' < "$1" || echo "${2:-}"; }
 _die()    { printf '%b\n' "$(_red "error:") $*" >&2; exit 1; }

@@ -90,6 +90,29 @@ CAC_VALIDATE_UPSTREAM_PROXY=socks5h://127.0.0.1:17891 \
   bash scripts/validate.sh --suite full --keep-workdir
 ```
 
+## Post-release housekeeping
+
+When a release is finished and there is no immediate follow-up validation or
+development work planned, run:
+
+```bash
+bash scripts/post-release-cleanup.sh
+```
+
+This removes validation scratch directories, repo-local Python caches, and
+unused Docker images/build cache while intentionally preserving:
+
+- running containers
+- Docker volumes
+- persisted Claude state under `docker/data` or `CAC_DATA`
+- `dist/` release assets
+
+Use `--dry-run` to preview:
+
+```bash
+bash scripts/post-release-cleanup.sh --dry-run
+```
+
 ## Coverage
 
 ### Automated by `scripts/validate.sh`

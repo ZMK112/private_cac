@@ -5,6 +5,19 @@ description: 版本发布历史和重要变更
 
 所有重要变更记录在此，每个条目关联对应的 PR 或 Issue。
 
+## v1.4.4-zmk.13-web.4
+<sub>2026-05-06</sub>
+
+**默认 shell 与 release 收尾清理更新**
+
+- 当 Docker shell 偏好尚未保存时，`cac docker setup` 现在会默认把交互 shell 选择落到 `zsh`。
+- 新增 `scripts/post-release-cleanup.sh`，作为 release 完成后的安全本地清理 hook。
+  - 清理 `/tmp` 下的验证临时目录
+  - 清理仓库内 `__pycache__`
+  - 清理未使用的 Docker 镜像与构建缓存
+  - 明确保留运行中的容器、volumes、Docker 持久化 Claude 状态以及 release 产物
+- 文档和项目记忆也同步加入这条规则：只有在 release 已完成且没有紧接着的验证或开发计划时，才运行该清理 hook。
+
 ## v1.4.4-zmk.13-web.3
 <sub>2026-04-30</sub>
 

@@ -128,7 +128,7 @@ _dk_cmd_setup() {
   ssh_password="${CAC_SSH_PASSWORD:-$(_dk_read_env CAC_SSH_PASSWORD)}"
   ssh_password="${ssh_password:-cherny}"
   preferred_shell="${CAC_FAKE_SHELL:-$(_dk_read_env CAC_FAKE_SHELL)}"
-  preferred_shell="${preferred_shell:-/bin/bash}"
+  preferred_shell="${preferred_shell:-/bin/zsh}"
   shell_choice="$(_dk_prompt_value "Default interactive shell (bash or zsh)" "${preferred_shell##*/}" 1)" || return 1
   case "$shell_choice" in
     bash|zsh)
